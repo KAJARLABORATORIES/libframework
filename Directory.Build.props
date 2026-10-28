@@ -1,0 +1,26 @@
+﻿<Project>
+  <PropertyGroup Label="C#">
+		<TargetFramework>net10.0</TargetFramework>
+
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+		<AnalysisLevel>latest</AnalysisLevel>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+	</PropertyGroup>
+  <PropertyGroup Label="NuGet">
+    <Authors>KAJAR LABORATORIES</Authors>
+    <Company>KAJAR LABORATORIES</Company>
+    <Copyright>Copyright (c) 2026 KAJAR LABORATORIES</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/KAJARLABORATORIES/libframework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/KAJARLABORATORIES/libframework</RepositoryUrl>
+  </PropertyGroup>
+</Project>
