@@ -2,4 +2,10 @@
   <PropertyGroup>
     <Description>A lean, extensible game framework for .NET.</Description>
   </PropertyGroup>
+  <ItemGroup Label="Package References">
+    <PackageReference Include="SDL3-CS" />
+    <PackageReference Include="SDL3-CS.Windows" />
+    <PackageReference Include="SDL3-CS.Linux" />
+    <PackageReference Include="SDL3-CS.MacOS" />
+  </ItemGroup>
 </Project>

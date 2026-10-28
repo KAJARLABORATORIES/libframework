@@ -1,20 +1,22 @@
 ﻿<Project>
   <PropertyGroup Label="C#">
-		<TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
 
-		<LangVersion>latest</LangVersion>
-		<Nullable>enable</Nullable>
-		<ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
 
-		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-		<CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
-		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-		<AnalysisLevel>latest</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
 
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
 
-		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-	</PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
   <PropertyGroup Label="NuGet">
     <Authors>KAJAR LABORATORIES</Authors>
     <Company>KAJAR LABORATORIES</Company>

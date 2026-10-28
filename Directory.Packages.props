@@ -1,5 +1,13 @@
 ﻿<Project>
+  <PropertyGroup>
+    <Sdl3CsVersion>3.4.18.1</Sdl3CsVersion>
+  </PropertyGroup>
   <ItemGroup Label="Package Versions">
     <PackageVersion Include="MinVer" Version="8.0.0" />
+    <PackageVersion Include="SDL3-CS" Version="$(Sdl3CsVersion)" />
+    <PackageVersion Include="SDL3-CS.Windows" Version="$(Sdl3CsVersion)" />
+    <PackageVersion Include="SDL3-CS.Linux" Version="$(Sdl3CsVersion)" />
+    <PackageVersion Include="SDL3-CS.MacOS" Version="$(Sdl3CsVersion)" />
+    <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.2" />
   </ItemGroup>
 </Project>

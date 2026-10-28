@@ -16,7 +16,7 @@
   },
   "dotnet.defaultSolution": "kajar-framework.slnx",
 
-  "[xml][json]": {
+  "[xml][json][csharp]": {
     "editor.formatOnSave": true
   }
 }

@@ -1,3 +1,6 @@
 ﻿<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="tests/framework/kajarlabs.Framework.Tests.csproj" />
+  </Folder>
   <Project Path="libs/framework/kajarlabs.Framework.csproj" />
 </Solution>
