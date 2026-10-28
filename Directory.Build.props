@@ -16,6 +16,10 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <PropertyGroup Label="NuGet">
     <Authors>KAJAR LABORATORIES</Authors>
