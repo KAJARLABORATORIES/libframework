@@ -1,0 +1,24 @@
+- name: breaking-change
+  color: 'b60205'
+  description: Incompatible change to the public API
+- name: feature
+  color: '0e8a16'
+  description: New functionality
+- name: fix
+  color: 'd93f0b'
+  description: Bug fix
+- name: docs
+  color: '0075ca'
+  description: Documentation only
+- name: ci
+  color: '5319e7'
+  description: Build, CI or release pipeline
+- name: chore
+  color: 'c5def5'
+  description: Maintenance with no user-facing change
+- name: dependencies
+  color: '0366d6'
+  description: Dependency updates
+- name: skip-changelog
+  color: 'eeeeee'
+  description: Exclude from release notes
