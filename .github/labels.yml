@@ -22,3 +22,45 @@
 - name: skip-changelog
   color: 'eeeeee'
   description: Exclude from release notes
+- name: decision
+  color: 'f9d0c4'
+  description: A design decision to make and record before implementation
+- name: area:platform
+  color: 'bfd4f2'
+  description: Host, window, SDL integration
+- name: area:io
+  color: 'bfd4f2'
+  description: Storage and resource stores
+- name: area:logging
+  color: 'bfd4f2'
+  description: Logging pipeline and sinks
+- name: area:timing
+  color: 'bfd4f2'
+  description: Clocks and time sources
+- name: area:threading
+  color: 'bfd4f2'
+  description: Game threads and scheduling
+- name: area:graphics
+  color: 'bfd4f2'
+  description: Renderer, SDL_GPU, shaders
+- name: area:scene
+  color: 'bfd4f2'
+  description: Drawables, containers, layout
+- name: area:input
+  color: 'bfd4f2'
+  description: Input handling and propagation
+- name: area:audio
+  color: 'bfd4f2'
+  description: Audio playback and mixing
+- name: area:text
+  color: 'bfd4f2'
+  description: Fonts and text rendering
+- name: area:ui
+  color: 'bfd4f2'
+  description: Screens and UI components
+- name: area:testing
+  color: 'bfd4f2'
+  description: Test infrastructure and visual tests
+- name: area:build
+  color: 'bfd4f2'
+  description: Build, packaging, CI
