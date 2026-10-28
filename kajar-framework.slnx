@@ -1,4 +1,7 @@
 ﻿<Solution>
+  <Folder Name="/Samples/">
+    <Project Path="samples/aot-smoke/kajarlabs.Framework.Samples.AotSmoke.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/framework/kajarlabs.Framework.Tests.csproj" />
   </Folder>
