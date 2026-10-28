@@ -1,7 +1,15 @@
 ﻿<Project>
-  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <Import
+    Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
   <PropertyGroup Label="AOT">
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
+  <PropertyGroup Label="MinVer">
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+  <ItemGroup Label="Package References">
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

@@ -15,4 +15,8 @@
     "*.csproj": "*.props,.editorconfig"
   },
   "dotnet.defaultSolution": "kajar-framework.slnx",
+
+  "[xml][json]": {
+    "editor.formatOnSave": true
+  }
 }
