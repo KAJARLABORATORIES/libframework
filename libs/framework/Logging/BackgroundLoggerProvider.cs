@@ -9,7 +9,7 @@ namespace kajarlabs.Framework.Logging;
 /// </summary>
 internal sealed class BackgroundLoggerProvider : ILoggerProvider
 {
-    private readonly Channel<LogMessage> channel = Channel.CreateUnbounded<LogMessage>(
+    private readonly Channel<QueueItem> channel = Channel.CreateUnbounded<QueueItem>(
         new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -42,6 +42,20 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
         return new BackgroundLogger(this, categoryName);
     }
 
+    /// <summary>
+    /// Waits until all currently queued messages have been written and flushed to all sinks.
+    /// </summary>
+    public void Flush()
+    {
+        if (Volatile.Read(ref disposed) != 0)
+            return;
+
+        using var signal = new ManualResetEventSlim(false);
+
+        if (channel.Writer.TryWrite(new QueueItem(default, signal)))
+            signal.Wait();
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0)
@@ -52,15 +66,7 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
 
         foreach (var sink in sinks)
         {
-            try
-            {
-                sink.Flush();
-            }
-            catch
-            {
-                // Best-effort flush during shutdown.
-            }
-
+            flushSink(sink);
             sink.Dispose();
         }
     }
@@ -70,7 +76,7 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
         if (Volatile.Read(ref disposed) != 0)
             return;
 
-        channel.Writer.TryWrite(message);
+        channel.Writer.TryWrite(new QueueItem(message, null));
     }
 
     private void processQueue()
@@ -79,8 +85,21 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
 
         while (reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
         {
-            while (reader.TryRead(out var message))
-                writeToSinks(in message);
+            while (reader.TryRead(out var item))
+            {
+                if (item.FlushSignal is { } signal)
+                {
+                    foreach (var sink in sinks)
+                        flushSink(sink);
+
+                    signal.Set();
+                }
+                else
+                {
+                    var message = item.Message;
+                    writeToSinks(in message);
+                }
+            }
         }
     }
 
@@ -98,6 +117,20 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
             }
         }
     }
+
+    private static void flushSink(ILogSink sink)
+    {
+        try
+        {
+            sink.Flush();
+        }
+        catch
+        {
+            // Best-effort flush during shutdown or unhandled exception handling.
+        }
+    }
+
+    private readonly record struct QueueItem(LogMessage Message, ManualResetEventSlim? FlushSignal);
 
     private sealed class BackgroundLogger(BackgroundLoggerProvider owner, string categoryName) : ILogger
     {
@@ -124,4 +157,44 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
             owner.enqueue(new LogMessage(DateTimeOffset.UtcNow, logLevel, categoryName, eventId, text, exception));
         }
     }
+}
+
+/// <summary>
+/// Flushes queued logs when <see cref="AppDomain.UnhandledException"/> fires.
+/// </summary>
+internal sealed class UnhandledExceptionFlushHook : IDisposable
+{
+    private readonly BackgroundLoggerProvider provider;
+    private readonly ILogger? logger;
+    private int disposed;
+
+    public UnhandledExceptionFlushHook(BackgroundLoggerProvider provider, ILogger? logger = null)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        this.provider = provider;
+        this.logger = logger;
+        AppDomain.CurrentDomain.UnhandledException += onUnhandledException;
+    }
+
+    internal void HandleUnhandledException(object? exceptionObject)
+    {
+        if (exceptionObject is Exception exception)
+            logger?.LogCritical(exception, "Unhandled exception");
+        else if (exceptionObject is not null)
+            logger?.LogCritical("Unhandled non-exception error: {Error}", exceptionObject);
+
+        provider.Flush();
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+
+        AppDomain.CurrentDomain.UnhandledException -= onUnhandledException;
+    }
+
+    private void onUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        => HandleUnhandledException(e.ExceptionObject);
 }
