@@ -1,6 +1,6 @@
 ﻿<Project>
   <PropertyGroup Label="C#">
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
 
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
