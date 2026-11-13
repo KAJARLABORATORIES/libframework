@@ -1,0 +1,22 @@
+name: Bug report
+description: Report unexpected behavior or a regression
+title: "[Bug]: "
+labels: [fix]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Clear description of what is broken.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, code snippet, or failing test to reproduce the issue.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, .NET SDK version, and relevant context.

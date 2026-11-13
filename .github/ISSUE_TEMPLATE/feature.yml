@@ -1,0 +1,17 @@
+name: Feature or task
+description: Propose a new feature, enhancement, or scoped work item
+title: ""
+labels: [feature]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should be built or changed and why.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope & acceptance criteria
+      description: Public API expectations, NativeAOT constraints, and tests required.
