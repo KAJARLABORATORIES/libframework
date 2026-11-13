@@ -9,6 +9,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    groups:
+      sdl3-cs:
+        patterns:
+          - "SDL3-CS*"
 
   - package-ecosystem: github-actions
     directory: /
@@ -19,3 +23,7 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
