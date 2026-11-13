@@ -1,6 +1,10 @@
+using System.Numerics;
 using System.Text;
 using kajarlabs.Framework;
+using kajarlabs.Framework.Graphics;
+using kajarlabs.Framework.Graphics.Rendering.Vertices;
 using kajarlabs.Framework.IO;
+using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
@@ -112,6 +116,14 @@ using (var headlessHost = new HeadlessGameHost())
     if (headlessGame.Updates != 3 || headlessHost.Window is not null)
         throw new InvalidOperationException("HeadlessGameHost failed bounded execution under NativeAOT.");
 }
+
+var viewport = new Viewport(new RectangleI(0, 0, 1280, 720));
+var projection = GraphicsMath.CreateOrthographicProjection(viewport);
+var vertex = new TexturedVertex2D(Vector2.Zero, Vector2.One, Color4.WHITE.WithAlpha(0.5f));
+var clip = Vector4.Transform(new Vector4(vertex.Position, 0f, 1f), projection);
+
+if (MathF.Abs(clip.X - (-1f)) > 0.0001f || MathF.Abs(clip.Y - 1f) > 0.0001f || !BlendingParameters.ALPHA.IsEnabled)
+    throw new InvalidOperationException("Graphics primitives failed projection check under NativeAOT.");
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
