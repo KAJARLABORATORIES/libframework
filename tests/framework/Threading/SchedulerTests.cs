@@ -196,19 +196,19 @@ public sealed class SchedulerTests
         var scheduler = new Scheduler(clock);
         var owningThreadId = Environment.CurrentManagedThreadId;
 
-        const int workerCount = 4;
-        const int tasksPerWorker = 50;
-        var executedThreadIds = new List<int>(workerCount * tasksPerWorker);
-        var workers = new Thread[workerCount];
-        using var allEnqueued = new CountdownEvent(workerCount);
+        const int worker_count = 4;
+        const int tasks_per_worker = 50;
+        var executedThreadIds = new List<int>(worker_count * tasks_per_worker);
+        var workers = new Thread[worker_count];
+        using var allEnqueued = new CountdownEvent(worker_count);
 
-        for (var w = 0; w < workerCount; w++)
+        for (var w = 0; w < worker_count; w++)
         {
             workers[w] = new Thread(() =>
             {
                 Assert.False(scheduler.IsCurrentThread);
 
-                for (var i = 0; i < tasksPerWorker; i++)
+                for (var i = 0; i < tasks_per_worker; i++)
                 {
                     if (i % 2 == 0)
                         scheduler.Add(() => executedThreadIds.Add(Environment.CurrentManagedThreadId));
@@ -229,8 +229,8 @@ public sealed class SchedulerTests
         clock.Advance(10);
         var executed = scheduler.Update();
 
-        Assert.Equal(workerCount * tasksPerWorker, executed);
-        Assert.Equal(workerCount * tasksPerWorker, executedThreadIds.Count);
+        Assert.Equal(worker_count * tasks_per_worker, executed);
+        Assert.Equal(worker_count * tasks_per_worker, executedThreadIds.Count);
         Assert.All(executedThreadIds, id => Assert.Equal(owningThreadId, id));
     }
 

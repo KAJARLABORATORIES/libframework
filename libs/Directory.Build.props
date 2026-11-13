@@ -9,6 +9,12 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
+  <PropertyGroup Label="NuGet">
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
   <ItemGroup Label="Package References">
     <PackageReference Include="MinVer" PrivateAssets="all" />
   </ItemGroup>

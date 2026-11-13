@@ -11,16 +11,18 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -38,32 +40,44 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
       - run: dotnet restore
+      - name: Verify formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build -c Release --no-restore
-      - run: dotnet test -c Release --no-build
+      - name: Run tests
+        run: |
+          mkdir -p artifacts/test-results
+          dotnet test -c Release --no-build -- -result-trx "$PWD/artifacts/test-results/${{ matrix.rid }}.trx"
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-${{ matrix.rid }}
+          path: artifacts/test-results/*.trx
+          if-no-files-found: ignore
       - name: Publish NativeAOT smoke sample
         run: dotnet publish samples/aot-smoke -c Release -r ${{ matrix.rid }} -o artifacts/aot
       - name: Run NativeAOT smoke sample
         run: ./artifacts/aot/kajarlabs.Framework.Samples.AotSmoke${{ matrix.exe }}
-
-  pack:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: global.json
-      - run: dotnet pack -c Release -o artifacts/packages
-      - uses: actions/upload-artifact@v4
+      - name: Pack NuGet packages
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet pack -c Release --no-build -o artifacts/packages
+      - name: Upload NuGet packages
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
-          path: artifacts/packages/*.nupkg
+          path: artifacts/packages/*.*nupkg

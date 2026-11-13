@@ -1,0 +1,56 @@
+name: PR lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const errors = [];
+
+            const titlePattern = /^(feat|fix|docs|ci|chore|test|refactor)(\([a-z0-9._-]+\))?!?: .+$/;
+            if (!titlePattern.test(pr.title)) {
+              errors.push(
+                `PR title must follow Conventional Commits (e.g. "feat(io): add storage"), got: "${pr.title}".`
+              );
+            }
+
+            const labels = pr.labels.map((l) => l.name);
+            const primaryTypes = ['feature', 'fix', 'docs', 'ci', 'chore', 'dependencies'];
+            const matchedTypes = labels.filter((name) => primaryTypes.includes(name));
+
+            if (matchedTypes.length !== 1) {
+              errors.push(
+                `PR must have exactly one primary type label (${primaryTypes.join(', ')}), found: [${matchedTypes.join(', ')}].`
+              );
+            }
+
+            const requiresArea = matchedTypes.some((t) => ['feature', 'fix', 'ci', 'chore'].includes(t));
+            const hasArea = labels.some((name) => name.startsWith('area:'));
+            if (requiresArea && !hasArea) {
+              errors.push('PR must include at least one "area:*" label.');
+            }
+
+            const skipIssueCheck = labels.includes('dependencies') || labels.includes('skip-changelog');
+            const body = pr.body ?? '';
+            if (!skipIssueCheck && !/(closes|fixes|resolves)\s+#\d+/i.test(body)) {
+              errors.push('PR description must reference a closing issue (e.g. "Closes #123").');
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(errors.join('\n'));
+            }
