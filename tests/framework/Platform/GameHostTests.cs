@@ -388,7 +388,7 @@ public sealed class GameHostTests : IDisposable
             return activeRouter;
         }
 
-        public IDisposable InitializeVideo()
+        public IDisposable InitializeVideo(string? videoDriverHint = null)
         {
             LifecycleCalls.Add("InitializeVideo");
             OnInitializeVideo?.Invoke(activeRouter);

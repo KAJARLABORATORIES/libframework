@@ -10,6 +10,7 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
 
     private static readonly Lock sdl_lock = new();
     private static int video_ref_count;
+    private static bool applied_video_driver_hint;
 
     private SdlPlatformBackend()
     {
@@ -17,14 +18,30 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
 
     public IDisposable InstallLogRouter(ILoggerFactory loggerFactory) => new SdlLogRouter(loggerFactory);
 
-    public IDisposable InitializeVideo()
+    public IDisposable InitializeVideo(string? videoDriverHint = null)
     {
         lock (sdl_lock)
         {
             if (video_ref_count == 0)
             {
+                if (!string.IsNullOrWhiteSpace(videoDriverHint))
+                {
+                    SDL.SetHint("SDL_VIDEO_DRIVER", videoDriverHint);
+                    applied_video_driver_hint = true;
+                }
+
                 if (!SDL.InitSubSystem(SDL.InitFlags.Video))
-                    throw new InvalidOperationException($"SDL video initialization failed: {SDL.GetError()}");
+                {
+                    var error = SDL.GetError();
+
+                    if (applied_video_driver_hint)
+                    {
+                        SDL.ResetHint("SDL_VIDEO_DRIVER");
+                        applied_video_driver_hint = false;
+                    }
+
+                    throw new InvalidOperationException($"SDL video initialization failed: {error}");
+                }
             }
 
             video_ref_count++;
@@ -104,6 +121,12 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
 
                     if (SDL.WasInit((SDL.InitFlags)0) == 0)
                         SDL.Quit();
+
+                    if (applied_video_driver_hint)
+                    {
+                        SDL.ResetHint("SDL_VIDEO_DRIVER");
+                        applied_video_driver_hint = false;
+                    }
                 }
             }
         }

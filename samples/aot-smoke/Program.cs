@@ -104,6 +104,15 @@ finally
         Directory.Delete(hostTempRoot, recursive: true);
 }
 
+using (var headlessHost = new HeadlessGameHost())
+{
+    var headlessGame = new HeadlessSmokeGame();
+    headlessHost.RunFrames(headlessGame, 3);
+
+    if (headlessGame.Updates != 3 || headlessHost.Window is not null)
+        throw new InvalidOperationException("HeadlessGameHost failed bounded execution under NativeAOT.");
+}
+
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
 
@@ -123,4 +132,11 @@ internal sealed class SmokeGame : Game
         SawWindow = Window?.IsCreated == true;
         Exit();
     }
+}
+
+internal sealed class HeadlessSmokeGame : Game
+{
+    public int Updates { get; private set; }
+
+    protected override void Update() => Updates++;
 }

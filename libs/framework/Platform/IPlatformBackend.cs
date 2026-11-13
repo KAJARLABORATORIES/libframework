@@ -20,7 +20,7 @@ internal interface IPlatformBackend
 {
     IDisposable InstallLogRouter(ILoggerFactory loggerFactory);
 
-    IDisposable InitializeVideo();
+    IDisposable InitializeVideo(string? videoDriverHint = null);
 
     nint CreateWindow(string title, int width, int height, bool resizable);
 
