@@ -1,5 +1,7 @@
 using System.Text;
+using kajarlabs.Framework;
 using kajarlabs.Framework.IO;
+using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
 using SDL3;
@@ -71,9 +73,54 @@ try
     runner.Stop();
 
     Console.WriteLine("kajarlabs.Framework subsystems verified under NativeAOT.");
-    return 0;
 }
 finally
 {
     SDL.Quit();
+}
+
+var hostTempRoot = Path.Combine(Path.GetTempPath(), $"kajarlabs-aot-host-{Guid.NewGuid():N}");
+
+try
+{
+    using var host = new DummySmokeHost(new HostOptions
+    {
+        Organization = "kajarlabs",
+        Application = "AotSmoke",
+        UserDataPath = hostTempRoot,
+        EnableConsoleLogging = false,
+        EnableFileLogging = true,
+    });
+
+    var game = new SmokeGame();
+    host.Run(game);
+
+    if (!game.Loaded || !game.SawWindow)
+        throw new InvalidOperationException("GameHost failed to initialize Game and Window under NativeAOT.");
+}
+finally
+{
+    if (Directory.Exists(hostTempRoot))
+        Directory.Delete(hostTempRoot, recursive: true);
+}
+
+Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
+return 0;
+
+internal sealed class DummySmokeHost(HostOptions options) : GameHost(options)
+{
+    protected override void ConfigureSdlVideo() => SDL.SetHint("SDL_VIDEO_DRIVER", "dummy");
+}
+
+internal sealed class SmokeGame : Game
+{
+    public bool Loaded { get; private set; }
+    public bool SawWindow { get; private set; }
+
+    protected override void Load()
+    {
+        Loaded = true;
+        SawWindow = Window?.IsCreated == true;
+        Exit();
+    }
 }

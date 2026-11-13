@@ -4,6 +4,7 @@ using SDL3;
 
 namespace kajarlabs.Framework.Tests.Logging;
 
+[Collection("SDL")]
 public sealed class SdlLogRouterTests
 {
     [Theory]
