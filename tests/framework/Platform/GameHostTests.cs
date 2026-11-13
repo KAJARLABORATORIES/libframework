@@ -186,18 +186,17 @@ public sealed class GameHostTests : IDisposable
         var backend = new FakePlatformBackend();
         using var host = new GameHost(createTestOptions(), backend);
 
-        var game = new CallbackGame(onUpdate: g =>
-        {
-            if (backend.TitleUpdates.IsEmpty)
+        var game = new CallbackGame(
+            onLoad: g =>
             {
                 g.Window!.Title = "Updated Title";
                 g.Window.SetSize(800, 600);
-                return;
-            }
-
-            if (!backend.SizeUpdates.IsEmpty)
-                g.Exit();
-        });
+            },
+            onUpdate: g =>
+            {
+                if (!backend.TitleUpdates.IsEmpty && !backend.SizeUpdates.IsEmpty)
+                    g.Exit();
+            });
 
         host.Run(game);
 
