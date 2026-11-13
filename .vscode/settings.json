@@ -7,7 +7,7 @@
     "**/Thumbs.db": true,
 
     "**/bin": true,
-    "**/obj": true,
+    "**/obj": true
   },
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.patterns": {
