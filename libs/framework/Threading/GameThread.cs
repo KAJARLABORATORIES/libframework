@@ -20,6 +20,7 @@ public abstract class GameThread : IDisposable
     private int state = (int)GameThreadState.Stopped;
     private long frameCount;
     private double targetFrequency;
+    private Exception? startupException;
     private Exception? unhandledException;
     private bool isInline;
     private bool disposed;
@@ -131,6 +132,7 @@ public abstract class GameThread : IDisposable
             if (current != GameThreadState.Stopped)
                 throw new InvalidOperationException($"Cannot start game thread '{Name}' from state {current}.");
 
+            startupException = null;
             unhandledException = null;
             isInline = false;
             startedSignal.Reset();
@@ -150,12 +152,12 @@ public abstract class GameThread : IDisposable
 
         startedSignal.Wait();
 
-        var startupException = UnhandledException;
-        if (startupException is not null && State == GameThreadState.Stopped)
+        var initFailure = Volatile.Read(ref startupException);
+        if (initFailure is not null)
         {
             worker.Join();
             Volatile.Write(ref managedThread, null);
-            ExceptionDispatchInfo.Capture(startupException).Throw();
+            ExceptionDispatchInfo.Capture(initFailure).Throw();
         }
     }
 
@@ -251,6 +253,7 @@ public abstract class GameThread : IDisposable
             if (current != GameThreadState.Stopped)
                 throw new InvalidOperationException($"Cannot start game thread '{Name}' inline from state {current}.");
 
+            startupException = null;
             unhandledException = null;
             isInline = true;
             startedSignal.Reset();
@@ -356,6 +359,9 @@ public abstract class GameThread : IDisposable
         }
         catch (Exception ex)
         {
+            if (!initialized)
+                Volatile.Write(ref startupException, ex);
+
             handleUnhandledException(ex, notifyListeners: initialized);
         }
         finally
