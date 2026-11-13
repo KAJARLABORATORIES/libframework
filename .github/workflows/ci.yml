@@ -58,16 +58,7 @@ jobs:
         run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build -c Release --no-restore
       - name: Run tests
-        run: |
-          mkdir -p artifacts/test-results
-          dotnet test -c Release --no-build -- -result-trx "$PWD/artifacts/test-results/${{ matrix.rid }}.trx"
-      - name: Upload test results on failure
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: test-results-${{ matrix.rid }}
-          path: artifacts/test-results/*.trx
-          if-no-files-found: ignore
+        run: dotnet test -c Release --no-build --output Detailed --timeout 2m
       - name: Publish NativeAOT smoke sample
         run: dotnet publish samples/aot-smoke -c Release -r ${{ matrix.rid }} -o artifacts/aot
       - name: Run NativeAOT smoke sample
