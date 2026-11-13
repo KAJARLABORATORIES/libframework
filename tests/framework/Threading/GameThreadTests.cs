@@ -115,15 +115,25 @@ public sealed class GameThreadTests
     [Fact]
     public void UpdateDrawAndInputRunAtIndependentRates()
     {
-        using var drawTargetReached = new ManualResetEventSlim(false);
+        using var allThreadsReady = new CountdownEvent(3);
+        var inputCount = 0;
+        var updateCount = 0;
         var drawCount = 0;
 
-        using var input = new InputThread(targetFrequency: 400);
-        using var update = new UpdateThread(targetFrequency: 200);
-        using var draw = new DrawThread(targetFrequency: 20, onNewFrame: _ =>
+        using var input = new InputThread(targetFrequency: 120, onNewFrame: _ =>
         {
-            if (Interlocked.Increment(ref drawCount) >= 5)
-                drawTargetReached.Set();
+            if (Interlocked.Increment(ref inputCount) == 10)
+                allThreadsReady.Signal();
+        });
+        using var update = new UpdateThread(targetFrequency: 60, onNewFrame: _ =>
+        {
+            if (Interlocked.Increment(ref updateCount) == 10)
+                allThreadsReady.Signal();
+        });
+        using var draw = new DrawThread(targetFrequency: 5, onNewFrame: _ =>
+        {
+            if (Interlocked.Increment(ref drawCount) == 4)
+                allThreadsReady.Signal();
         });
 
         input.Start();
@@ -132,7 +142,7 @@ public sealed class GameThreadTests
 
         try
         {
-            Assert.True(drawTargetReached.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+            Assert.True(allThreadsReady.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -141,6 +151,7 @@ public sealed class GameThreadTests
             input.Stop();
         }
 
+        Assert.InRange(draw.FrameCount, 4, 19);
         Assert.True(input.FrameCount > draw.FrameCount, $"Expected Input ({input.FrameCount}) > Draw ({draw.FrameCount}).");
         Assert.True(update.FrameCount > draw.FrameCount, $"Expected Update ({update.FrameCount}) > Draw ({draw.FrameCount}).");
     }
