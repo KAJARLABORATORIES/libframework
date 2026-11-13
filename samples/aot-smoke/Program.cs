@@ -1,4 +1,4 @@
-﻿using SDL3;
+using SDL3;
 
 SDL.SetHint("SDL_VIDEO_DRIVER", "dummy");
 
