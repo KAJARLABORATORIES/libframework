@@ -1,0 +1,22 @@
+name: Design decision
+description: Record an architectural or API decision before implementation
+title: "Decide "
+labels: [decision]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Problem statement and constraints (NativeAOT, SDL boundary, cross-platform).
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+      description: Trade-offs of each option.
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision
+      description: Chosen direction and rationale.
