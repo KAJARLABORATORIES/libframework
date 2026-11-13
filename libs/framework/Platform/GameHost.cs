@@ -134,6 +134,11 @@ public partial class GameHost : IDisposable
     protected virtual bool ShouldRouteSdlLogs => true;
 
     /// <summary>
+    /// Gets an optional SDL video driver hint applied when initializing the video subsystem.
+    /// </summary>
+    protected virtual string? PreferredVideoDriver => null;
+
+    /// <summary>
     /// Runs the host lifecycle on the calling (main) thread until <see cref="Exit"/> is called
     /// or the window is closed.
     /// </summary>
@@ -201,6 +206,13 @@ public partial class GameHost : IDisposable
     /// Called once per frame on the input (main) thread after SDL events have been pumped.
     /// </summary>
     protected virtual void OnInputFrame()
+    {
+    }
+
+    /// <summary>
+    /// Called once on the update thread after <see cref="Game.Load"/> has executed.
+    /// </summary>
+    protected virtual void OnUpdateInitialize()
     {
     }
 
@@ -302,7 +314,7 @@ public partial class GameHost : IDisposable
             logHostStarting(Logger, Options.Organization, Options.Application);
 
             ConfigureSdlVideo();
-            videoSession = backend.InitializeVideo();
+            videoSession = backend.InitializeVideo(PreferredVideoDriver);
 
             Threads.Run(onStarted: OnStart);
         }
@@ -427,10 +439,14 @@ public partial class GameHost : IDisposable
         protected override void OnInitialize()
         {
             host.activeGame?.InvokeLoad();
+            host.OnUpdateInitialize();
         }
 
         protected override void OnNewFrame()
         {
+            if (host.IsExitRequested)
+                return;
+
             host.activeGame?.InvokeUpdate();
             host.OnUpdateFrame();
         }
@@ -447,6 +463,9 @@ public partial class GameHost : IDisposable
 
         protected override void OnNewFrame()
         {
+            if (host.IsExitRequested)
+                return;
+
             host.activeGame?.InvokeDraw();
             host.OnDrawFrame();
         }
