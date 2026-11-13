@@ -91,8 +91,8 @@ public class StorageContainmentTests
     public void SubStorageOnlySeesItsOwnSubtree()
     {
         var root = new InMemoryStorage();
-        Write(root, "a/inside.txt", "inside");
-        Write(root, "outside.txt", "outside");
+        write(root, "a/inside.txt", "inside");
+        write(root, "outside.txt", "outside");
 
         var sub = root.GetStorageForDirectory("a");
 
@@ -105,7 +105,7 @@ public class StorageContainmentTests
     public void DeleteDirectoryRefusesToDeleteTheRoot()
     {
         var storage = new InMemoryStorage();
-        Write(storage, "a.txt", "a");
+        write(storage, "a.txt", "a");
 
         Assert.Throws<ArgumentException>(() => storage.DeleteDirectory(""));
         Assert.Throws<ArgumentException>(() => storage.DeleteDirectory("a/.."));
@@ -116,10 +116,10 @@ public class StorageContainmentTests
     public void CustomSubclassCanReadWriteListAndDelete()
     {
         var storage = new InMemoryStorage();
-        Write(storage, "dir/one.txt", "1");
-        Write(storage, "dir/nested/two.txt", "2");
+        write(storage, "dir/one.txt", "1");
+        write(storage, "dir/nested/two.txt", "2");
 
-        Assert.Equal("1", Read(storage, "dir/one.txt"));
+        Assert.Equal("1", read(storage, "dir/one.txt"));
         Assert.True(storage.ExistsDirectory("dir/nested"));
         Assert.Equal(["dir/one.txt"], storage.GetFiles("dir"));
         Assert.Equal(["dir/nested"], storage.GetDirectories("dir"));
@@ -138,14 +138,14 @@ public class StorageContainmentTests
         Assert.Throws<NotSupportedException>(() => storage.GetFullPath("a.txt"));
     }
 
-    private static void Write(Storage storage, string path, string content)
+    private static void write(Storage storage, string path, string content)
     {
         using var stream = storage.GetStream(path, FileAccess.Write, FileMode.Create);
         using var writer = new StreamWriter(stream);
         writer.Write(content);
     }
 
-    private static string Read(Storage storage, string path)
+    private static string read(Storage storage, string path)
     {
         using var stream = storage.GetStream(path);
         using var reader = new StreamReader(stream);

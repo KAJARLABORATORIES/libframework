@@ -8,11 +8,11 @@ public sealed class BackgroundLoggerProviderTests
     [Fact]
     public void MessagesFromMultipleThreadsAllArriveInPerThreadOrderOnSingleBackgroundThread()
     {
-        const int threadCount = 4;
-        const int messagesPerThread = 200;
+        const int thread_count = 4;
+        const int messages_per_thread = 200;
 
         var sink = new RecordingSink();
-        var producerThreadIds = new int[threadCount];
+        var producerThreadIds = new int[thread_count];
 
         using (var factory = new FrameworkLoggerFactory())
         {
@@ -20,9 +20,9 @@ public sealed class BackgroundLoggerProviderTests
             var logger = factory.CreateLogger("MultiThread");
 
             using var startGate = new ManualResetEventSlim(false);
-            var threads = new Thread[threadCount];
+            var threads = new Thread[thread_count];
 
-            for (var t = 0; t < threadCount; t++)
+            for (var t = 0; t < thread_count; t++)
             {
                 var threadIndex = t;
                 threads[t] = new Thread(() =>
@@ -30,7 +30,7 @@ public sealed class BackgroundLoggerProviderTests
                     producerThreadIds[threadIndex] = Environment.CurrentManagedThreadId;
                     startGate.Wait();
 
-                    for (var i = 0; i < messagesPerThread; i++)
+                    for (var i = 0; i < messages_per_thread; i++)
                         logger.LogInformation("T{Thread}:{Index}", threadIndex, i);
                 });
                 threads[t].Start();
@@ -42,14 +42,14 @@ public sealed class BackgroundLoggerProviderTests
                 thread.Join();
         }
 
-        Assert.Equal(threadCount * messagesPerThread, sink.Messages.Count);
+        Assert.Equal(thread_count * messages_per_thread, sink.Messages.Count);
         Assert.True(sink.Flushed);
         Assert.True(sink.Disposed);
 
         var writerThreadId = Assert.Single(sink.WriterThreadIds);
         Assert.DoesNotContain(writerThreadId, producerThreadIds);
 
-        for (var t = 0; t < threadCount; t++)
+        for (var t = 0; t < thread_count; t++)
         {
             var prefix = $"T{t}:";
             var perThread = sink.Messages
@@ -57,7 +57,7 @@ public sealed class BackgroundLoggerProviderTests
                 .Select(m => int.Parse(m.Message.AsSpan(prefix.Length)))
                 .ToArray();
 
-            Assert.Equal(Enumerable.Range(0, messagesPerThread), perThread);
+            Assert.Equal(Enumerable.Range(0, messages_per_thread), perThread);
         }
     }
 

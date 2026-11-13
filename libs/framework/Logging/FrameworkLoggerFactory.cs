@@ -87,10 +87,10 @@ internal sealed class FrameworkLoggerFactory : ILoggerFactory
             var snapshot = targets;
 
             if (snapshot.Length == 0)
-                return NullScope.Instance;
+                return NullScope.INSTANCE;
 
             if (snapshot.Length == 1)
-                return snapshot[0].BeginScope(state) ?? NullScope.Instance;
+                return snapshot[0].BeginScope(state) ?? NullScope.INSTANCE;
 
             var scopes = new IDisposable?[snapshot.Length];
 
@@ -134,7 +134,7 @@ internal sealed class FrameworkLoggerFactory : ILoggerFactory
 
     private sealed class NullScope : IDisposable
     {
-        public static readonly NullScope Instance = new();
+        public static readonly NullScope INSTANCE = new();
 
         public void Dispose()
         {

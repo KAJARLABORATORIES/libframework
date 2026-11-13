@@ -6,6 +6,11 @@
 # Check out with CRLF (Windows) line endings
 *.slnx text eol=crlf
 *.csproj text eol=crlf
+*.props text eol=crlf
+*.targets text eol=crlf
+*.DotSettings text eol=crlf
+*.ruleset text eol=crlf
+*.manifest text eol=crlf
 *.cs text diff=csharp eol=crlf
 *.resx text eol=crlf
 *.vsixmanifest text eol=crlf
