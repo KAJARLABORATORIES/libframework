@@ -2,6 +2,7 @@ using SDL3;
 
 namespace kajarlabs.Framework.Tests;
 
+[Collection("SDL")]
 public class SdlSmokeTests
 {
     [Fact]
