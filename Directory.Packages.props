@@ -1,6 +1,6 @@
 ﻿<Project>
   <PropertyGroup>
-    <Sdl3CsVersion>3.4.18.1</Sdl3CsVersion>
+    <Sdl3CsVersion>3.4.20</Sdl3CsVersion>
   </PropertyGroup>
   <ItemGroup Label="Package Versions">
     <PackageVersion Include="MinVer" Version="8.0.0" />
