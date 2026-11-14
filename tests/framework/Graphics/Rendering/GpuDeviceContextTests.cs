@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using kajarlabs.Framework.Graphics.Rendering;
+using kajarlabs.Framework.Numerics;
 using Microsoft.Extensions.Logging;
 
 namespace kajarlabs.Framework.Tests.Graphics.Rendering;
@@ -570,6 +571,12 @@ public sealed class GpuDeviceContextTests
                 drawCommandBuffers.Remove(commandBuffer);
                 return true;
             }
+        }
+
+        public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+        {
+            lock (sync)
+                Calls.Add(nameof(ClearColorTarget));
         }
 
         public bool AcquireSwapchainTexture(

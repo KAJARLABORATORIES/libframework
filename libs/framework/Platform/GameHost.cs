@@ -1,4 +1,6 @@
 using System.Runtime.ExceptionServices;
+using kajarlabs.Framework.Graphics;
+using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Logging;
 using kajarlabs.Framework.Threading;
@@ -13,6 +15,7 @@ namespace kajarlabs.Framework.Platform;
 public partial class GameHost : IDisposable
 {
     private readonly IPlatformBackend backend;
+    private readonly IGpuBackend? gpuBackend;
     private readonly FrameworkLoggerFactory loggerFactory;
     private readonly BackgroundLoggerProvider? backgroundLoggerProvider;
     private readonly UnhandledExceptionFlushHook? unhandledExceptionHook;
@@ -22,6 +25,7 @@ public partial class GameHost : IDisposable
     private readonly Lock lifecycleLock = new();
     private readonly ManualResetEventSlim runStoppedSignal = new(true);
 
+    private IHostRenderer activeRenderer;
     private Game? activeGame;
     private Exception? unhandledThreadException;
     private int runThreadId = -1;
@@ -35,11 +39,16 @@ public partial class GameHost : IDisposable
     /// </summary>
     /// <param name="options">Optional configuration for storage, logging, and window creation.</param>
     public GameHost(HostOptions? options = null)
-        : this(options, SdlPlatformBackend.INSTANCE)
+        : this(options, SdlPlatformBackend.INSTANCE, SdlGpuBackend.INSTANCE)
     {
     }
 
     internal GameHost(HostOptions? options, IPlatformBackend backend)
+        : this(options, backend, gpuBackend: null)
+    {
+    }
+
+    internal GameHost(HostOptions? options, IPlatformBackend backend, IGpuBackend? gpuBackend)
     {
         ArgumentNullException.ThrowIfNull(backend);
 
@@ -47,6 +56,8 @@ public partial class GameHost : IDisposable
         Options.Validate();
 
         this.backend = backend;
+        this.gpuBackend = gpuBackend;
+        activeRenderer = new NullRenderer(Options.WindowWidth, Options.WindowHeight);
 
         var userDataPath = UserDataLocation.Resolve(Options.Organization, Options.Application, Options.UserDataPath);
         Storage = new FileSystemStorage(userDataPath);
@@ -107,6 +118,11 @@ public partial class GameHost : IDisposable
     /// Gets the window created by this host, or <see langword="null"/> if no window is created.
     /// </summary>
     public GameWindow? Window { get; private set; }
+
+    /// <summary>
+    /// Gets the renderer owned by this host.
+    /// </summary>
+    public IRenderer Renderer => Volatile.Read(ref activeRenderer);
 
     /// <summary>
     /// Gets the thread runner coordinating the <c>Input</c>, <c>Update</c>, and <c>Draw</c> threads.
@@ -268,6 +284,7 @@ public partial class GameHost : IDisposable
         drawThread.ExceptionThrown -= onThreadException;
 
         Threads.Dispose();
+        Volatile.Read(ref activeRenderer).Dispose();
         unhandledExceptionHook?.Dispose();
         loggerFactory.Dispose();
         runStoppedSignal.Dispose();
@@ -316,6 +333,17 @@ public partial class GameHost : IDisposable
             ConfigureSdlVideo();
             videoSession = backend.InitializeVideo(PreferredVideoDriver);
 
+            var isDummyVideo = backend.IsDummyVideoDriver();
+
+            if (ShouldCreateWindow && gpuBackend is not null && isDummyVideo)
+                logDummyVideoFallback(Logger);
+
+            IHostRenderer runRenderer = ShouldCreateWindow && gpuBackend is not null && !isDummyVideo
+                ? new SdlGpuRenderer(gpuBackend, Logger, Options.WindowWidth, Options.WindowHeight)
+                : new NullRenderer(Options.WindowWidth, Options.WindowHeight);
+
+            Volatile.Write(ref activeRenderer, runRenderer);
+
             Threads.Run(onStarted: OnStart);
         }
         catch (Exception ex)
@@ -326,6 +354,18 @@ public partial class GameHost : IDisposable
         }
         finally
         {
+            if (Window is { } window)
+                window.Resized -= onWindowResized;
+
+            try
+            {
+                Volatile.Read(ref activeRenderer).Shutdown();
+            }
+            catch (Exception ex)
+            {
+                logRendererCleanupError(Logger, ex);
+            }
+
             try
             {
                 Window?.Destroy();
@@ -355,6 +395,15 @@ public partial class GameHost : IDisposable
         }
     }
 
+    internal void ForwardResize(int width, int height)
+        => Volatile.Read(ref activeRenderer).Resize(width, height);
+
+    private void onWindowResized(int width, int height)
+        => Volatile.Read(ref activeRenderer).Resize(width, height);
+
+    private Viewport resolveDrawViewport(IHostRenderer renderer)
+        => Window is { } window ? new Viewport(window.Width, window.Height) : renderer.Viewport;
+
     private void pumpEvents()
     {
         while (backend.PollEvent(out var platformEvent))
@@ -368,6 +417,21 @@ public partial class GameHost : IDisposable
                 case PlatformEventType.WindowCloseRequested:
                     Window?.ProcessEvent(in platformEvent);
                     Exit();
+                    break;
+
+                case PlatformEventType.WindowPixelSizeChanged:
+                    if (Window is { } pixelWindow && platformEvent.WindowId == pixelWindow.Id)
+                        Volatile.Read(ref activeRenderer).Resize(platformEvent.Data1, platformEvent.Data2);
+                    break;
+
+                case PlatformEventType.WindowMinimized:
+                    if (Window is { } minimizedWindow && platformEvent.WindowId == minimizedWindow.Id)
+                        Volatile.Read(ref activeRenderer).Resize(0, 0);
+                    break;
+
+                case PlatformEventType.WindowRestored:
+                    if (Window is { } restoredWindow && platformEvent.WindowId == restoredWindow.Id)
+                        Volatile.Read(ref activeRenderer).RefreshSurface();
                     break;
 
                 default:
@@ -401,6 +465,12 @@ public partial class GameHost : IDisposable
     [LoggerMessage(Level = LogLevel.Error, Message = "Error destroying window during cleanup")]
     private static partial void logWindowCleanupError(ILogger logger, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error shutting down renderer during cleanup")]
+    private static partial void logRendererCleanupError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Using NullRenderer because SDL video driver is 'dummy'")]
+    private static partial void logDummyVideoFallback(ILogger logger);
+
     private sealed class HostInputThread : InputThread
     {
         private readonly GameHost host;
@@ -412,17 +482,27 @@ public partial class GameHost : IDisposable
 
         protected override void OnInitialize()
         {
-            host.Window?.Create(host.Options.Resizable);
+            if (host.Window is { } window)
+            {
+                window.Create(host.Options.Resizable);
+                window.Resized += host.onWindowResized;
+                Volatile.Read(ref host.activeRenderer).Initialize(window.Handle);
+            }
         }
 
         protected override void OnNewFrame()
         {
             host.pumpEvents();
+            Volatile.Read(ref host.activeRenderer).Present();
             host.OnInputFrame();
         }
 
         protected override void OnExit()
         {
+            if (host.Window is { } window)
+                window.Resized -= host.onWindowResized;
+
+            Volatile.Read(ref host.activeRenderer).Shutdown();
             host.Window?.Destroy();
         }
     }
@@ -466,8 +546,24 @@ public partial class GameHost : IDisposable
             if (host.IsExitRequested)
                 return;
 
-            host.activeGame?.InvokeDraw();
-            host.OnDrawFrame();
+            var renderer = Volatile.Read(ref host.activeRenderer);
+            renderer.BeginFrame(host.resolveDrawViewport(renderer));
+            var faulted = false;
+
+            try
+            {
+                host.activeGame?.InvokeDraw();
+                host.OnDrawFrame();
+            }
+            catch
+            {
+                faulted = true;
+                throw;
+            }
+            finally
+            {
+                renderer.EndFrame(faulted);
+            }
         }
     }
 }

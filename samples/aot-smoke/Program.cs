@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using kajarlabs.Framework;
 using kajarlabs.Framework.Graphics;
+using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Graphics.Rendering.Vertices;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
@@ -99,8 +100,8 @@ try
     var game = new SmokeGame();
     host.Run(game);
 
-    if (!game.Loaded || !game.SawWindow)
-        throw new InvalidOperationException("GameHost failed to initialize Game and Window under NativeAOT.");
+    if (!game.Loaded || !game.SawWindow || !game.SawRenderer)
+        throw new InvalidOperationException("GameHost failed to initialize Game, Window, and Renderer under NativeAOT.");
 }
 finally
 {
@@ -113,8 +114,8 @@ using (var headlessHost = new HeadlessGameHost())
     var headlessGame = new HeadlessSmokeGame();
     headlessHost.RunFrames(headlessGame, 3);
 
-    if (headlessGame.Updates != 3 || headlessHost.Window is not null)
-        throw new InvalidOperationException("HeadlessGameHost failed bounded execution under NativeAOT.");
+    if (headlessGame.Updates != 3 || headlessHost.Window is not null || headlessGame.Draws == 0 || headlessHost.Renderer.Viewport.Width <= 0)
+        throw new InvalidOperationException("HeadlessGameHost failed bounded execution or renderer verification under NativeAOT.");
 }
 
 var viewport = new Viewport(new RectangleI(0, 0, 1280, 720));
@@ -137,18 +138,45 @@ internal sealed class SmokeGame : Game
 {
     public bool Loaded { get; private set; }
     public bool SawWindow { get; private set; }
+    public bool SawRenderer { get; private set; }
 
     protected override void Load()
     {
         Loaded = true;
         SawWindow = Window?.IsCreated == true;
+        SawRenderer = Renderer is IRenderer && Renderer.Viewport.Width > 0;
         Exit();
     }
 }
 
 internal sealed class HeadlessSmokeGame : Game
 {
-    public int Updates { get; private set; }
+    private readonly ManualResetEventSlim drawObserved = new(false);
+    private int draws;
 
-    protected override void Update() => Updates++;
+    public int Updates { get; private set; }
+    public int Draws => Volatile.Read(ref draws);
+
+    protected override void Update()
+    {
+        Updates++;
+
+        if (Updates >= 3 && !drawObserved.Wait(TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("DrawThread did not execute within timeout.");
+    }
+
+    protected override void Draw()
+    {
+        Interlocked.Increment(ref draws);
+        Renderer.Clear(Color4.BLUE);
+        drawObserved.Set();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            drawObserved.Dispose();
+
+        base.Dispose(disposing);
+    }
 }

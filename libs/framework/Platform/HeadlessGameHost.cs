@@ -1,3 +1,5 @@
+using kajarlabs.Framework.Graphics.Rendering;
+
 namespace kajarlabs.Framework.Platform;
 
 /// <summary>
@@ -32,7 +34,7 @@ public class HeadlessGameHost : GameHost
         bool ownsUserDataPath,
         bool useRealTimeThrottling,
         IPlatformBackend backend)
-        : base(options, backend)
+        : base(options, backend, gpuBackend: null)
     {
         ownedUserDataPath = ownsUserDataPath ? Options.UserDataPath : null;
 

@@ -64,6 +64,15 @@ internal sealed partial class GpuDeviceContext : IDisposable
 
     public GpuPresentMode ActivePresentMode { get; private set; } = GpuPresentMode.VSync;
 
+    public (int Width, int Height) SurfaceSize
+    {
+        get
+        {
+            lock (stateLock)
+                return (targetWidth, targetHeight);
+        }
+    }
+
     /// <summary>
     /// Creates the GPU device, claims the window handle, and configures swapchain parameters.
     /// Must be called on the window-creating thread (<c>InputThread</c>).

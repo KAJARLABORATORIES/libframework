@@ -1,3 +1,4 @@
+using kajarlabs.Framework.Numerics;
 using SDL3;
 
 namespace kajarlabs.Framework.Graphics.Rendering;
@@ -104,6 +105,23 @@ internal sealed class SdlGpuBackend : IGpuBackend
         => SDL.SubmitGPUCommandBufferAndAcquireFence(commandBuffer);
 
     public bool CancelCommandBuffer(nint commandBuffer) => SDL.CancelGPUCommandBuffer(commandBuffer);
+
+    public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+    {
+        var colorTargetInfo = new SDL.GPUColorTargetInfo
+        {
+            Texture = colorTargetTexture,
+            ClearColor = new SDL.FColor(clearColor.R, clearColor.G, clearColor.B, clearColor.A),
+            LoadOp = SDL.GPULoadOp.Clear,
+            StoreOp = SDL.GPUStoreOp.Store,
+        };
+
+        ReadOnlySpan<SDL.GPUColorTargetInfo> targets = [colorTargetInfo];
+        var renderPass = SDL.BeginGPURenderPass(commandBuffer, targets, 1, nint.Zero);
+
+        if (renderPass != nint.Zero)
+            SDL.EndGPURenderPass(renderPass);
+    }
 
     public bool AcquireSwapchainTexture(
         nint commandBuffer,
