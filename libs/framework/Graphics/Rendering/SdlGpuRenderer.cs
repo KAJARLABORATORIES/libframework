@@ -7,6 +7,7 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 {
     private readonly IGpuBackend backend;
     private readonly Lock viewportLock = new();
+    private GpuPipelineCache? pipelineCache;
     private GpuOffscreenFrame activeFrame;
     private bool hasActiveFrame;
     private Color4? pendingClearColor;
@@ -37,9 +38,15 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 
     internal GpuDeviceContext Context { get; }
 
+    internal GpuPipelineCache? PipelineCache => Volatile.Read(ref pipelineCache);
+
     public void Initialize(nint windowHandle)
     {
         Context.Initialize(windowHandle);
+
+        var createdCache = new GpuPipelineCache(backend, Context.DeviceHandle, Context.SupportedShaderFormats);
+        var previousCache = Interlocked.Exchange(ref pipelineCache, createdCache);
+        previousCache?.Dispose();
 
         var (width, height) = Context.SurfaceSize;
 
@@ -109,7 +116,25 @@ internal sealed class SdlGpuRenderer : IHostRenderer
             Viewport = new Viewport(width, height);
     }
 
-    public void Shutdown() => Context.Shutdown();
+    internal nint GetOrCreatePipeline(GpuGraphicsPipelineKey key)
+    {
+        var cache = Volatile.Read(ref pipelineCache)
+            ?? throw new InvalidOperationException("Renderer pipeline cache is not initialized.");
 
-    public void Dispose() => Context.Dispose();
+        return cache.GetOrCreatePipeline(key);
+    }
+
+    public void Shutdown()
+    {
+        disposePipelineCache();
+        Context.Shutdown();
+    }
+
+    public void Dispose()
+    {
+        disposePipelineCache();
+        Context.Dispose();
+    }
+
+    private void disposePipelineCache() => Interlocked.Exchange(ref pipelineCache, null)?.Dispose();
 }

@@ -38,6 +38,14 @@ internal interface IGpuBackend
 
     void ReleaseTexture(nint device, nint texture);
 
+    nint CreateShader(nint device, in GpuShaderCreateDescription description);
+
+    void ReleaseShader(nint device, nint shader);
+
+    nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description);
+
+    void ReleaseGraphicsPipeline(nint device, nint pipeline);
+
     nint AcquireCommandBuffer(nint device);
 
     bool SubmitCommandBuffer(nint commandBuffer);
