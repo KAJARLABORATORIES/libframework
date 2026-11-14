@@ -105,6 +105,59 @@ public sealed class SdlGpuRendererTests
         Assert.True(renderer.Present());
     }
 
+    [Fact]
+    public void ShutdownAndDisposeReleaseAllCachedPipelinesAndShadersBeforeDestroyDevice()
+    {
+        var backend = new FakeGpuBackend
+        {
+            PixelWidth = 640,
+            PixelHeight = 480,
+        };
+        using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
+
+        Assert.Null(renderer.PipelineCache);
+
+        renderer.Initialize(fake_window);
+        Assert.NotNull(renderer.PipelineCache);
+
+        var keyAlpha = new GpuGraphicsPipelineKey(
+            BuiltInShaders.SPRITE_2D_VERTEX,
+            BuiltInShaders.SPRITE_2D_FRAGMENT,
+            GpuVertexLayout.TEXTURED_VERTEX_2D,
+            BlendingParameters.ALPHA,
+            GpuPrimitiveTopology.TriangleList,
+            new GpuTextureFormat(12));
+
+        var keyAdditive = new GpuGraphicsPipelineKey(
+            BuiltInShaders.SPRITE_2D_VERTEX,
+            BuiltInShaders.SPRITE_2D_FRAGMENT,
+            GpuVertexLayout.TEXTURED_VERTEX_2D,
+            BlendingParameters.ADDITIVE,
+            GpuPrimitiveTopology.TriangleList,
+            new GpuTextureFormat(12));
+
+        var handle1 = renderer.GetOrCreatePipeline(keyAlpha);
+        var handle2 = renderer.GetOrCreatePipeline(keyAlpha);
+        var handle3 = renderer.GetOrCreatePipeline(keyAdditive);
+
+        Assert.Equal(handle1, handle2);
+        Assert.NotEqual(handle1, handle3);
+        Assert.Equal(2, backend.CreatedPipelines.Count);
+        Assert.Equal(2, backend.CreatedShaders.Count);
+
+        renderer.Shutdown();
+        renderer.Dispose();
+
+        Assert.Null(renderer.PipelineCache);
+        Assert.Equal(backend.CreatedPipelines, backend.ReleasedPipelines);
+        Assert.Equal(backend.CreatedShaders, backend.ReleasedShaders);
+
+        var destroyIndex = backend.LifecycleEvents.IndexOf("DestroyDevice");
+        Assert.True(destroyIndex > 0);
+        Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseGraphicsPipeline") < destroyIndex);
+        Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseShader") < destroyIndex);
+    }
+
     private sealed class FakeGpuBackend : IGpuBackend
     {
         private nint nextHandle = 0x100;
@@ -115,9 +168,16 @@ public sealed class SdlGpuRendererTests
         public int CancelCount { get; private set; }
         public int BlitCount { get; private set; }
         public Color4 LastClearColor { get; private set; }
+        public List<nint> CreatedShaders { get; } = [];
+        public List<nint> ReleasedShaders { get; } = [];
+        public List<nint> CreatedPipelines { get; } = [];
+        public List<nint> ReleasedPipelines { get; } = [];
+        public List<string> LifecycleEvents { get; } = [];
 
         public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver) => ++nextHandle;
-        public void DestroyDevice(nint device) { }
+
+        public void DestroyDevice(nint device) => LifecycleEvents.Add(nameof(DestroyDevice));
+
         public string? GetDeviceDriver(nint device) => "vulkan";
         public GpuShaderFormats GetSupportedShaderFormats(nint device) => GpuShaderFormats.SpirV;
         public bool ClaimWindow(nint device, nint windowHandle) => true;
@@ -138,6 +198,34 @@ public sealed class SdlGpuRendererTests
         public bool IsWindowMinimized(nint windowHandle) => false;
         public nint CreateTexture(nint device, in GpuTextureDescription description) => ++nextHandle;
         public void ReleaseTexture(nint device, nint texture) { }
+
+        public nint CreateShader(nint device, in GpuShaderCreateDescription description)
+        {
+            var handle = ++nextHandle;
+            CreatedShaders.Add(handle);
+            LifecycleEvents.Add(nameof(CreateShader));
+            return handle;
+        }
+
+        public void ReleaseShader(nint device, nint shader)
+        {
+            ReleasedShaders.Add(shader);
+            LifecycleEvents.Add(nameof(ReleaseShader));
+        }
+
+        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
+        {
+            var handle = ++nextHandle;
+            CreatedPipelines.Add(handle);
+            LifecycleEvents.Add(nameof(CreateGraphicsPipeline));
+            return handle;
+        }
+
+        public void ReleaseGraphicsPipeline(nint device, nint pipeline)
+        {
+            ReleasedPipelines.Add(pipeline);
+            LifecycleEvents.Add(nameof(ReleaseGraphicsPipeline));
+        }
         public nint AcquireCommandBuffer(nint device) => ++nextHandle;
         public bool SubmitCommandBuffer(nint commandBuffer) => true;
         public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer) => ++nextHandle;

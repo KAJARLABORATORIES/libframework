@@ -5,6 +5,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="kajarlabs.Framework.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Shaders\Compiled\*">
+      <LogicalName>kajarlabs.Framework.Resources.Shaders.Compiled.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
   <ItemGroup Label="Package References">
     <PackageReference Include="SDL3-CS" />
     <PackageReference Include="SDL3-CS.Windows" />

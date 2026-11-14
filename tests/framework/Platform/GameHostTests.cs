@@ -687,6 +687,22 @@ public sealed class GameHostTests : IDisposable
 
         public void ReleaseTexture(nint device, nint texture) => sharedEvents?.Enqueue("ReleaseTexture");
 
+        public nint CreateShader(nint device, in GpuShaderCreateDescription description)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseShader(nint device, nint shader) => sharedEvents?.Enqueue("ReleaseShader");
+
+        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseGraphicsPipeline(nint device, nint pipeline) => sharedEvents?.Enqueue("ReleaseGraphicsPipeline");
+
         public nint AcquireCommandBuffer(nint device)
         {
             lock (sync)

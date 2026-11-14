@@ -97,6 +97,114 @@ internal sealed class SdlGpuBackend : IGpuBackend
             SDL.ReleaseGPUTexture(device, texture);
     }
 
+    public nint CreateShader(nint device, in GpuShaderCreateDescription description)
+    {
+        var createInfo = new SDL.GPUShaderCreateInfo
+        {
+            Stage = toSdlShaderStage(description.Stage),
+            Format = toSdlShaderFormats(description.Format),
+            NumSamplers = description.NumSamplers,
+            NumStorageTextures = description.NumStorageTextures,
+            NumStorageBuffers = description.NumStorageBuffers,
+            NumUniformBuffers = description.NumUniformBuffers,
+        };
+
+        return SDL.CreateGPUShader(device, in createInfo, description.Bytecode.Span, description.Entrypoint);
+    }
+
+    public void ReleaseShader(nint device, nint shader)
+    {
+        if (device != nint.Zero && shader != nint.Zero)
+            SDL.ReleaseGPUShader(device, shader);
+    }
+
+    public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
+    {
+        var bindingsSpan = description.VertexLayout.BufferBindings;
+        var attributesSpan = description.VertexLayout.Attributes;
+
+        var sdlBindings = bindingsSpan.Length <= 8
+            ? stackalloc SDL.GPUVertexBufferDescription[bindingsSpan.Length]
+            : new SDL.GPUVertexBufferDescription[bindingsSpan.Length];
+
+        for (var i = 0; i < bindingsSpan.Length; i++)
+        {
+            var binding = bindingsSpan[i];
+            sdlBindings[i] = new SDL.GPUVertexBufferDescription
+            {
+                Slot = binding.Slot,
+                Pitch = binding.Pitch,
+                InputRate = toSdlVertexInputRate(binding.InputRate),
+                InstanceStepRate = binding.InstanceStepRate,
+            };
+        }
+
+        var sdlAttributes = attributesSpan.Length <= 16
+            ? stackalloc SDL.GPUVertexAttribute[attributesSpan.Length]
+            : new SDL.GPUVertexAttribute[attributesSpan.Length];
+
+        for (var i = 0; i < attributesSpan.Length; i++)
+        {
+            var attribute = attributesSpan[i];
+            sdlAttributes[i] = new SDL.GPUVertexAttribute
+            {
+                Location = attribute.Location,
+                BufferSlot = attribute.BufferSlot,
+                Format = toSdlVertexElementFormat(attribute.Format),
+                Offset = attribute.Offset,
+            };
+        }
+
+        ReadOnlySpan<SDL.GPUColorTargetDescription> colorTargets =
+        [
+            new SDL.GPUColorTargetDescription
+            {
+                Format = toSdlTextureFormat(description.ColorTargetFormat),
+                BlendState = toSdlBlendState(description.Blending),
+            },
+        ];
+
+        var createInfo = new SDL.GPUGraphicsPipelineCreateInfo
+        {
+            VertexShader = description.VertexShader,
+            FragmentShader = description.FragmentShader,
+            PrimitiveType = toSdlPrimitiveType(description.Topology),
+            RasterizerState = new SDL.GPURasterizerState
+            {
+                FillMode = SDL.GPUFillMode.Fill,
+                CullMode = SDL.GPUCullMode.None,
+                FrontFace = SDL.GPUFrontFace.CounterClockwise,
+                EnableDepthBias = false,
+                EnableDepthClip = false,
+            },
+            MultisampleState = new SDL.GPUMultisampleState
+            {
+                SampleCount = SDL.GPUSampleCount.SampleCount1,
+                EnableAlphaToCoverage = false,
+            },
+            DepthStencilState = new SDL.GPUDepthStencilState
+            {
+                CompareOp = SDL.GPUCompareOp.Always,
+                EnableDepthTest = false,
+                EnableDepthWrite = false,
+                EnableStencilTest = false,
+            },
+            TargetInfo = new SDL.GPUGraphicsPipelineTargetInfo
+            {
+                NumColorTargets = (uint)colorTargets.Length,
+                HasDepthStencilTarget = false,
+            },
+        };
+
+        return SDL.CreateGPUGraphicsPipeline(device, in createInfo, sdlBindings, sdlAttributes, colorTargets);
+    }
+
+    public void ReleaseGraphicsPipeline(nint device, nint pipeline)
+    {
+        if (device != nint.Zero && pipeline != nint.Zero)
+            SDL.ReleaseGPUGraphicsPipeline(device, pipeline);
+    }
+
     public nint AcquireCommandBuffer(nint device) => SDL.AcquireGPUCommandBuffer(device);
 
     public bool SubmitCommandBuffer(nint commandBuffer) => SDL.SubmitGPUCommandBuffer(commandBuffer);
@@ -250,4 +358,82 @@ internal sealed class SdlGpuBackend : IGpuBackend
 
     private static SDL.GPUTextureFormat toSdlTextureFormat(GpuTextureFormat format)
         => (SDL.GPUTextureFormat)format.RawValue;
+
+    private static SDL.GPUShaderStage toSdlShaderStage(GpuShaderStage stage)
+        => stage switch
+        {
+            GpuShaderStage.Vertex => SDL.GPUShaderStage.Vertex,
+            GpuShaderStage.Fragment => SDL.GPUShaderStage.Fragment,
+            _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, null),
+        };
+
+    private static SDL.GPUVertexInputRate toSdlVertexInputRate(GpuVertexInputRate inputRate)
+        => inputRate switch
+        {
+            GpuVertexInputRate.Vertex => SDL.GPUVertexInputRate.Vertex,
+            GpuVertexInputRate.Instance => SDL.GPUVertexInputRate.Instance,
+            _ => throw new ArgumentOutOfRangeException(nameof(inputRate), inputRate, null),
+        };
+
+    private static SDL.GPUVertexElementFormat toSdlVertexElementFormat(GpuVertexElementFormat format)
+        => format switch
+        {
+            GpuVertexElementFormat.Float => SDL.GPUVertexElementFormat.Float,
+            GpuVertexElementFormat.Float2 => SDL.GPUVertexElementFormat.Float2,
+            GpuVertexElementFormat.Float3 => SDL.GPUVertexElementFormat.Float3,
+            GpuVertexElementFormat.Float4 => SDL.GPUVertexElementFormat.Float4,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+        };
+
+    private static SDL.GPUPrimitiveType toSdlPrimitiveType(GpuPrimitiveTopology topology)
+        => topology switch
+        {
+            GpuPrimitiveTopology.TriangleList => SDL.GPUPrimitiveType.TriangleList,
+            GpuPrimitiveTopology.TriangleStrip => SDL.GPUPrimitiveType.TriangleStrip,
+            GpuPrimitiveTopology.LineList => SDL.GPUPrimitiveType.LineList,
+            GpuPrimitiveTopology.LineStrip => SDL.GPUPrimitiveType.LineStrip,
+            GpuPrimitiveTopology.PointList => SDL.GPUPrimitiveType.PointList,
+            _ => throw new ArgumentOutOfRangeException(nameof(topology), topology, null),
+        };
+
+    private static SDL.GPUColorTargetBlendState toSdlBlendState(BlendingParameters blending)
+        => new()
+        {
+            EnableBlend = blending.IsEnabled,
+            SrcColorBlendFactor = toSdlBlendFactor(blending.SourceColorFactor),
+            DstColorBlendFactor = toSdlBlendFactor(blending.DestinationColorFactor),
+            ColorBlendOp = toSdlBlendOp(blending.ColorOperation),
+            SrcAlphaBlendFactor = toSdlBlendFactor(blending.SourceAlphaFactor),
+            DstAlphaBlendFactor = toSdlBlendFactor(blending.DestinationAlphaFactor),
+            AlphaBlendOp = toSdlBlendOp(blending.AlphaOperation),
+            EnableColorWriteMask = false,
+        };
+
+    private static SDL.GPUBlendFactor toSdlBlendFactor(BlendFactor factor)
+        => factor switch
+        {
+            BlendFactor.Zero => SDL.GPUBlendFactor.Zero,
+            BlendFactor.One => SDL.GPUBlendFactor.One,
+            BlendFactor.SourceColor => SDL.GPUBlendFactor.SrcColor,
+            BlendFactor.OneMinusSourceColor => SDL.GPUBlendFactor.OneMinusSrcColor,
+            BlendFactor.DestinationColor => SDL.GPUBlendFactor.DstColor,
+            BlendFactor.OneMinusDestinationColor => SDL.GPUBlendFactor.OneMinusDstColor,
+            BlendFactor.SourceAlpha => SDL.GPUBlendFactor.SrcAlpha,
+            BlendFactor.OneMinusSourceAlpha => SDL.GPUBlendFactor.OneMinusSrcAlpha,
+            BlendFactor.DestinationAlpha => SDL.GPUBlendFactor.DstAlpha,
+            BlendFactor.OneMinusDestinationAlpha => SDL.GPUBlendFactor.OneMinusDstAlpha,
+            BlendFactor.SourceAlphaSaturate => SDL.GPUBlendFactor.SrcAlphaSaturate,
+            _ => throw new ArgumentOutOfRangeException(nameof(factor), factor, null),
+        };
+
+    private static SDL.GPUBlendOp toSdlBlendOp(BlendOperation operation)
+        => operation switch
+        {
+            BlendOperation.Add => SDL.GPUBlendOp.Add,
+            BlendOperation.Subtract => SDL.GPUBlendOp.Subtract,
+            BlendOperation.ReverseSubtract => SDL.GPUBlendOp.ReverseSubtract,
+            BlendOperation.Min => SDL.GPUBlendOp.Min,
+            BlendOperation.Max => SDL.GPUBlendOp.Max,
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
+        };
 }

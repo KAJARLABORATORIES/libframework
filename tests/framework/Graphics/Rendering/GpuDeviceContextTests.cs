@@ -528,6 +528,26 @@ public sealed class GpuDeviceContextTests
             }
         }
 
+        public nint CreateShader(nint device, in GpuShaderCreateDescription description)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseShader(nint device, nint shader)
+        {
+        }
+
+        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseGraphicsPipeline(nint device, nint pipeline)
+        {
+        }
+
         public nint AcquireCommandBuffer(nint device)
         {
             lock (sync)
