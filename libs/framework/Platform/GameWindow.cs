@@ -93,6 +93,8 @@ public sealed class GameWindow
     /// </summary>
     public event Action<int, int>? Resized;
 
+    internal nint Handle => Volatile.Read(ref handle);
+
     internal uint Id { get; private set; }
 
     /// <summary>
