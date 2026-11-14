@@ -43,10 +43,13 @@ internal sealed class NullRenderer : IHostRenderer
     {
     }
 
-    public void BeginFrame(Viewport viewport)
+    public void BeginFrame(Viewport? viewport = null)
     {
-        lock (stateLock)
-            Viewport = viewport;
+        if (viewport is { } resolvedViewport)
+        {
+            lock (stateLock)
+                Viewport = resolvedViewport;
+        }
     }
 
     public void Clear(Color4 color)

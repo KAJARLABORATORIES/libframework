@@ -197,13 +197,17 @@ public sealed class HeadlessGameHostTests
             Assert.IsType<NullRenderer>(host.Renderer);
             Assert.Equal(new Viewport(800, 600), host.Renderer.Viewport);
 
+            var drawCountAtResize = 0;
             var game = new RendererProbeGame(onUpdate: (probe, frame) =>
             {
                 if (frame == 2)
+                {
                     host.ForwardResize(1920, 1080);
+                    drawCountAtResize = probe.DrawCount;
+                }
 
                 if (frame >= 4)
-                    probe.WaitForDraw();
+                    probe.WaitForDrawAfter(drawCountAtResize);
             });
 
             host.RunFrames(game, 5);
@@ -364,7 +368,22 @@ public sealed class HeadlessGameHostTests
         public IRenderer? ObservedRenderer { get; private set; }
         public int DrawCount => Volatile.Read(ref drawCount);
 
-        public void WaitForDraw() => Assert.True(drawObserved.Wait(TimeSpan.FromSeconds(5)));
+        public void WaitForDrawAfter(int baselineDrawCount)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+
+            while (Volatile.Read(ref drawCount) <= baselineDrawCount)
+            {
+                var remaining = deadline - DateTime.UtcNow;
+                Assert.True(remaining > TimeSpan.Zero, "Timed out waiting for draw after resize.");
+                drawObserved.Reset();
+
+                if (Volatile.Read(ref drawCount) > baselineDrawCount)
+                    return;
+
+                drawObserved.Wait(remaining);
+            }
+        }
 
         protected override void Load() => ObservedRenderer = Renderer;
 
@@ -376,8 +395,8 @@ public sealed class HeadlessGameHostTests
 
         protected override void Draw()
         {
-            Interlocked.Increment(ref drawCount);
             Renderer.Clear(Color4.CYAN);
+            Interlocked.Increment(ref drawCount);
             drawObserved.Set();
         }
 

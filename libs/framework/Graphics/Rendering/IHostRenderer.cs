@@ -4,7 +4,7 @@ internal interface IHostRenderer : IRenderer, IDisposable
 {
     void Initialize(nint windowHandle);
 
-    void BeginFrame(Viewport viewport);
+    void BeginFrame(Viewport? viewport = null);
 
     void EndFrame(bool faulted = false);
 

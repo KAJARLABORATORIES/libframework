@@ -47,14 +47,16 @@ internal sealed class SdlGpuRenderer : IHostRenderer
             Viewport = new Viewport(width, height);
     }
 
-    public void BeginFrame(Viewport viewport)
+    public void BeginFrame(Viewport? viewport = null)
     {
         hasActiveFrame = false;
         pendingClearColor = null;
 
         if (!Context.BeginOffscreenFrame(out activeFrame))
         {
-            Viewport = viewport;
+            if (viewport is { } fallbackViewport)
+                Viewport = fallbackViewport;
+
             return;
         }
 

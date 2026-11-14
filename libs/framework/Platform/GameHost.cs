@@ -401,9 +401,6 @@ public partial class GameHost : IDisposable
     private void onWindowResized(int width, int height)
         => Volatile.Read(ref activeRenderer).Resize(width, height);
 
-    private Viewport resolveDrawViewport(IHostRenderer renderer)
-        => Window is { } window ? new Viewport(window.Width, window.Height) : renderer.Viewport;
-
     private void pumpEvents()
     {
         while (backend.PollEvent(out var platformEvent))
@@ -547,7 +544,7 @@ public partial class GameHost : IDisposable
                 return;
 
             var renderer = Volatile.Read(ref host.activeRenderer);
-            renderer.BeginFrame(host.resolveDrawViewport(renderer));
+            renderer.BeginFrame();
             var faulted = false;
 
             try
