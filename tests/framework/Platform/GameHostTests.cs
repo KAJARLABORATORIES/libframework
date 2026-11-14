@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
+using kajarlabs.Framework.Graphics;
+using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
+using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
 using Microsoft.Extensions.Logging;
 using SDL3;
@@ -266,8 +269,14 @@ public sealed class GameHostTests : IDisposable
 
         foreach (var type in frameworkAssembly.GetExportedTypes())
         {
-            if (type.Namespace is not ("kajarlabs.Framework" or "kajarlabs.Framework.Platform"))
+            if (type.Namespace is not (
+                "kajarlabs.Framework"
+                or "kajarlabs.Framework.Platform"
+                or "kajarlabs.Framework.Graphics"
+                or "kajarlabs.Framework.Graphics.Rendering"))
+            {
                 continue;
+            }
 
             foreach (var prop in type.GetProperties())
                 Assert.NotSame(sdlAssembly, prop.PropertyType.Assembly);
@@ -286,6 +295,119 @@ public sealed class GameHostTests : IDisposable
                     Assert.NotSame(sdlAssembly, param.ParameterType.Assembly);
             }
         }
+    }
+
+    [Fact]
+    public void WindowedHostInitializesGpuRendererPresentsAndShutsDownBeforeDestroyWindow()
+    {
+        var mainThreadId = Environment.CurrentManagedThreadId;
+        var eventsLog = new ConcurrentQueue<string>();
+        var platformBackend = new FakePlatformBackend(eventsLog);
+        var gpuBackend = new FakeGpuBackend(eventsLog)
+        {
+            PixelWidth = 1280,
+            PixelHeight = 720,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var game = new GpuProbeGame(
+            onDraw: g => g.Renderer.Clear(Color4.MAGENTA),
+            shouldExit: () => gpuBackend.BlitCount >= 1);
+
+        host.Run(game);
+
+        Assert.Same(host.Renderer, game.ObservedRenderer);
+        Assert.IsType<SdlGpuRenderer>(host.Renderer);
+        Assert.Equal(Color4.MAGENTA, gpuBackend.LastClearColor);
+        Assert.True(gpuBackend.BlitCount >= 1);
+        Assert.Equal(mainThreadId, gpuBackend.CreateDeviceThreadId);
+        Assert.Equal(mainThreadId, gpuBackend.ClaimWindowThreadId);
+        Assert.Equal(mainThreadId, gpuBackend.ShutdownThreadId);
+        Assert.All(gpuBackend.PresentThreadIds, id => Assert.Equal(mainThreadId, id));
+        Assert.All(gpuBackend.ClearThreadIds, id => Assert.NotEqual(mainThreadId, id));
+
+        var orderedEvents = eventsLog.ToArray();
+        var createWindowIdx = Array.IndexOf(orderedEvents, "CreateWindow");
+        var createDeviceIdx = Array.IndexOf(orderedEvents, "CreateDevice");
+        var claimWindowIdx = Array.IndexOf(orderedEvents, "ClaimWindow");
+        var waitIdleIdx = Array.IndexOf(orderedEvents, "WaitForIdle");
+        var releaseWindowIdx = Array.IndexOf(orderedEvents, "ReleaseWindow");
+        var destroyDeviceIdx = Array.IndexOf(orderedEvents, "DestroyDevice");
+        var destroyWindowIdx = Array.IndexOf(orderedEvents, "DestroyWindow");
+
+        Assert.True(createWindowIdx >= 0);
+        Assert.True(createDeviceIdx > createWindowIdx);
+        Assert.True(claimWindowIdx > createDeviceIdx);
+        Assert.True(waitIdleIdx > claimWindowIdx);
+        Assert.True(releaseWindowIdx > waitIdleIdx);
+        Assert.True(destroyDeviceIdx > releaseWindowIdx);
+        Assert.True(destroyWindowIdx > destroyDeviceIdx);
+    }
+
+    [Fact]
+    public void WindowResizePropagatesToGpuRendererWithoutDeadlockOnExit()
+    {
+        var platformBackend = new FakePlatformBackend();
+        var gpuBackend = new FakeGpuBackend
+        {
+            PixelWidth = 1280,
+            PixelHeight = 720,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var resizeQueued = false;
+        var exitRequested = false;
+
+        var game = new CallbackGame(
+            onUpdate: g =>
+            {
+                if (!resizeQueued)
+                {
+                    resizeQueued = true;
+                    gpuBackend.PixelWidth = 1920;
+                    gpuBackend.PixelHeight = 1080;
+                    platformBackend.EnqueueEvent(new PlatformEvent(PlatformEventType.WindowResized, platformBackend.CreatedWindowId, 1920, 1080));
+                    platformBackend.EnqueueEvent(new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId, 1920, 1080));
+                }
+                else if (!exitRequested && gpuBackend.LastBlitSourceWidth == 1920 && gpuBackend.LastBlitSourceHeight == 1080)
+                {
+                    exitRequested = true;
+                    platformBackend.EnqueueEvent(new PlatformEvent(PlatformEventType.WindowResized, platformBackend.CreatedWindowId, 800, 600));
+                    g.Exit();
+                }
+            });
+
+        host.Run(game);
+
+        Assert.False(host.IsRunning);
+        Assert.Equal(1920u, gpuBackend.LastBlitSourceWidth);
+        Assert.Equal(1080u, gpuBackend.LastBlitSourceHeight);
+    }
+
+    [Fact]
+    public void DrawExceptionCancelsGpuCommandBufferAndCleansUpHost()
+    {
+        var eventsLog = new ConcurrentQueue<string>();
+        var platformBackend = new FakePlatformBackend(eventsLog);
+        var gpuBackend = new FakeGpuBackend(eventsLog)
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var game = new ThrowingDrawGame();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => host.Run(game));
+
+        Assert.Equal("draw-boom", ex.Message);
+        Assert.False(host.IsRunning);
+        Assert.Equal(1, gpuBackend.CancelCount);
+
+        var orderedEvents = eventsLog.ToArray();
+        Assert.Contains("DestroyDevice", orderedEvents);
+        Assert.Contains("DestroyWindow", orderedEvents);
+        Assert.True(Array.IndexOf(orderedEvents, "DestroyWindow") > Array.IndexOf(orderedEvents, "DestroyDevice"));
     }
 
     private static string readAllTextShared(string path)
@@ -363,10 +485,49 @@ public sealed class GameHostTests : IDisposable
         protected override void Update() => onUpdate?.Invoke(this);
     }
 
+    private sealed class GpuProbeGame : Game
+    {
+        private readonly Action<Game> onDraw;
+        private readonly Func<bool> shouldExit;
+
+        public GpuProbeGame(Action<Game> onDraw, Func<bool> shouldExit)
+        {
+            this.onDraw = onDraw;
+            this.shouldExit = shouldExit;
+        }
+
+        public IRenderer? ObservedRenderer { get; private set; }
+
+        protected override void Load() => ObservedRenderer = Renderer;
+
+        protected override void Update()
+        {
+            if (shouldExit())
+                Exit();
+        }
+
+        protected override void Draw() => onDraw(this);
+    }
+
+    private sealed class ThrowingDrawGame : Game
+    {
+        protected override void Draw()
+        {
+            Renderer.Clear(Color4.RED);
+            throw new InvalidOperationException("draw-boom");
+        }
+    }
+
     private sealed class FakePlatformBackend : IPlatformBackend
     {
         private readonly ConcurrentQueue<PlatformEvent> events = new();
+        private readonly ConcurrentQueue<string>? sharedEvents;
         private FakeLogRouter? activeRouter;
+
+        public FakePlatformBackend(ConcurrentQueue<string>? sharedEvents = null)
+        {
+            this.sharedEvents = sharedEvents;
+        }
 
         public List<string> LifecycleCalls { get; } = [];
         public ConcurrentQueue<int> PollEventThreadIds { get; } = new();
@@ -395,6 +556,8 @@ public sealed class GameHostTests : IDisposable
             return new VideoToken(this);
         }
 
+        public bool IsDummyVideoDriver() => false;
+
         public nint CreateWindow(string title, int width, int height, bool resizable)
         {
             CreateWindowThreadId = Environment.CurrentManagedThreadId;
@@ -403,6 +566,7 @@ public sealed class GameHostTests : IDisposable
                 throw new InvalidOperationException("Simulated CreateWindow failure.");
 
             LifecycleCalls.Add("CreateWindow");
+            sharedEvents?.Enqueue("CreateWindow");
             return new nint(100);
         }
 
@@ -410,6 +574,7 @@ public sealed class GameHostTests : IDisposable
         {
             DestroyWindowThreadId = Environment.CurrentManagedThreadId;
             LifecycleCalls.Add("DestroyWindow");
+            sharedEvents?.Enqueue("DestroyWindow");
         }
 
         public uint GetWindowId(nint handle) => CreatedWindowId;
@@ -447,6 +612,139 @@ public sealed class GameHostTests : IDisposable
         private sealed class VideoToken(FakePlatformBackend owner) : IDisposable
         {
             public void Dispose() => owner.LifecycleCalls.Add("ShutdownVideo");
+        }
+    }
+
+    private sealed class FakeGpuBackend : IGpuBackend
+    {
+        private readonly Lock sync = new();
+        private readonly ConcurrentQueue<string>? sharedEvents;
+        private nint nextHandle = 0x1000;
+
+        public FakeGpuBackend(ConcurrentQueue<string>? sharedEvents = null)
+        {
+            this.sharedEvents = sharedEvents;
+        }
+
+        public int PixelWidth { get; set; } = 1280;
+        public int PixelHeight { get; set; } = 720;
+        public int CreateDeviceThreadId { get; private set; }
+        public int ClaimWindowThreadId { get; private set; }
+        public int ShutdownThreadId { get; private set; }
+        public int BlitCount { get; private set; }
+        public int CancelCount { get; private set; }
+        public uint LastBlitSourceWidth { get; private set; }
+        public uint LastBlitSourceHeight { get; private set; }
+        public Color4 LastClearColor { get; private set; }
+        public ConcurrentQueue<int> PresentThreadIds { get; } = new();
+        public ConcurrentQueue<int> ClearThreadIds { get; } = new();
+
+        public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver)
+        {
+            CreateDeviceThreadId = Environment.CurrentManagedThreadId;
+            sharedEvents?.Enqueue("CreateDevice");
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void DestroyDevice(nint device)
+        {
+            ShutdownThreadId = Environment.CurrentManagedThreadId;
+            sharedEvents?.Enqueue("DestroyDevice");
+        }
+
+        public string? GetDeviceDriver(nint device) => "vulkan";
+        public GpuShaderFormats GetSupportedShaderFormats(nint device) => GpuShaderFormats.SpirV;
+
+        public bool ClaimWindow(nint device, nint windowHandle)
+        {
+            ClaimWindowThreadId = Environment.CurrentManagedThreadId;
+            sharedEvents?.Enqueue("ClaimWindow");
+            return true;
+        }
+
+        public void ReleaseWindow(nint device, nint windowHandle) => sharedEvents?.Enqueue("ReleaseWindow");
+        public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => true;
+        public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => true;
+        public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => true;
+        public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => new(12);
+        public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => swapchainFormat;
+
+        public bool GetWindowPixelSize(nint windowHandle, out int width, out int height)
+        {
+            width = PixelWidth;
+            height = PixelHeight;
+            return true;
+        }
+
+        public bool IsWindowMinimized(nint windowHandle) => false;
+
+        public nint CreateTexture(nint device, in GpuTextureDescription description)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseTexture(nint device, nint texture) => sharedEvents?.Enqueue("ReleaseTexture");
+
+        public nint AcquireCommandBuffer(nint device)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public bool SubmitCommandBuffer(nint commandBuffer) => true;
+
+        public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public bool CancelCommandBuffer(nint commandBuffer)
+        {
+            lock (sync)
+                CancelCount++;
+            return true;
+        }
+
+        public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+        {
+            ClearThreadIds.Enqueue(Environment.CurrentManagedThreadId);
+            lock (sync)
+                LastClearColor = clearColor;
+        }
+
+        public bool AcquireSwapchainTexture(nint commandBuffer, nint windowHandle, out nint swapchainTexture, out uint width, out uint height)
+        {
+            lock (sync)
+            {
+                swapchainTexture = ++nextHandle;
+                width = (uint)Math.Max(0, PixelWidth);
+                height = (uint)Math.Max(0, PixelHeight);
+                return true;
+            }
+        }
+
+        public void BlitTexture(nint commandBuffer, nint sourceTexture, uint sourceWidth, uint sourceHeight, nint destinationTexture, uint destinationWidth, uint destinationHeight)
+        {
+            PresentThreadIds.Enqueue(Environment.CurrentManagedThreadId);
+            lock (sync)
+            {
+                BlitCount++;
+                LastBlitSourceWidth = sourceWidth;
+                LastBlitSourceHeight = sourceHeight;
+            }
+        }
+
+        public bool QueryFence(nint device, nint fence) => true;
+        public bool WaitForFences(nint device, ReadOnlySpan<nint> fences) => true;
+        public void ReleaseFence(nint device, nint fence) { }
+
+        public bool WaitForIdle(nint device)
+        {
+            sharedEvents?.Enqueue("WaitForIdle");
+            return true;
         }
     }
 

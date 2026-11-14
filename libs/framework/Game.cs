@@ -1,3 +1,4 @@
+using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Platform;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,11 @@ public class Game : IDisposable
     /// Gets the host window, or <see langword="null"/> when running without a window.
     /// </summary>
     public GameWindow? Window => Host.Window;
+
+    /// <summary>
+    /// Gets the renderer owned by the host.
+    /// </summary>
+    public IRenderer Renderer => Host.Renderer;
 
     /// <summary>
     /// Requests a clean shutdown of the host.

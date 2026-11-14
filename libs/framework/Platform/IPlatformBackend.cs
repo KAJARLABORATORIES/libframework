@@ -8,6 +8,9 @@ internal enum PlatformEventType
     Quit = 1,
     WindowCloseRequested = 2,
     WindowResized = 3,
+    WindowPixelSizeChanged = 4,
+    WindowMinimized = 5,
+    WindowRestored = 6,
 }
 
 internal readonly record struct PlatformEvent(
@@ -21,6 +24,8 @@ internal interface IPlatformBackend
     IDisposable InstallLogRouter(ILoggerFactory loggerFactory);
 
     IDisposable InitializeVideo(string? videoDriverHint = null);
+
+    bool IsDummyVideoDriver();
 
     nint CreateWindow(string title, int width, int height, bool resizable);
 

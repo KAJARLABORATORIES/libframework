@@ -49,6 +49,9 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
         }
     }
 
+    public bool IsDummyVideoDriver()
+        => string.Equals(SDL.GetCurrentVideoDriver(), "dummy", StringComparison.OrdinalIgnoreCase);
+
     public nint CreateWindow(string title, int width, int height, bool resizable)
     {
         var flags = resizable ? SDL.WindowFlags.Resizable : default;
@@ -93,6 +96,17 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
                 sdlEvent.Window.WindowID,
                 sdlEvent.Window.Data1,
                 sdlEvent.Window.Data2),
+            SDL.EventType.WindowPixelSizeChanged => new PlatformEvent(
+                PlatformEventType.WindowPixelSizeChanged,
+                sdlEvent.Window.WindowID,
+                sdlEvent.Window.Data1,
+                sdlEvent.Window.Data2),
+            SDL.EventType.WindowMinimized => new PlatformEvent(
+                PlatformEventType.WindowMinimized,
+                sdlEvent.Window.WindowID),
+            SDL.EventType.WindowRestored => new PlatformEvent(
+                PlatformEventType.WindowRestored,
+                sdlEvent.Window.WindowID),
             _ => new PlatformEvent(PlatformEventType.Other),
         };
 

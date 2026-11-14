@@ -1,3 +1,5 @@
+using kajarlabs.Framework.Numerics;
+
 namespace kajarlabs.Framework.Graphics.Rendering;
 
 internal interface IGpuBackend
@@ -43,6 +45,8 @@ internal interface IGpuBackend
     nint SubmitCommandBufferAndAcquireFence(nint commandBuffer);
 
     bool CancelCommandBuffer(nint commandBuffer);
+
+    void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor);
 
     bool AcquireSwapchainTexture(
         nint commandBuffer,
