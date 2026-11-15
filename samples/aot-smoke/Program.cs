@@ -7,6 +7,7 @@ using kajarlabs.Framework.Graphics.Rendering.Vertices;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
+using kajarlabs.Framework.Scene;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
 using SDL3;
@@ -135,6 +136,19 @@ var clip = Vector4.Transform(new Vector4(vertex.Position, 0f, 1f), projection);
 
 if (MathF.Abs(clip.X - (-1f)) > 0.0001f || MathF.Abs(clip.Y - 1f) > 0.0001f || !BlendingParameters.ALPHA.IsEnabled)
     throw new InvalidOperationException("Graphics primitives failed projection check under NativeAOT.");
+
+var quadTransform = Matrix3x2Extensions.CreateLocalTransform(new Vector2(10f, 20f), Vector2.One, Vector2.Zero, 90f, Vector2.Zero);
+var transformedQuad = new Quad(0f, 0f, 20f, 10f).Transformed(quadTransform);
+var insetRect = MarginPadding.All(2f).Deflate(transformedQuad.AABB);
+
+if (!transformedQuad.Contains(5f, 25f)
+    || !quadTransform.TryInvert(out _)
+    || insetRect.Width <= 0f
+    || Anchor.Centre.GetRelativeOffset() != new Vector2(0.5f, 0.5f)
+    || !Axes.Both.HasFlag(Axes.X))
+{
+    throw new InvalidOperationException("Scene geometry primitives check failed under NativeAOT.");
+}
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
