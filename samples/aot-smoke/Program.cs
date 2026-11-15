@@ -123,6 +123,9 @@ using (var headlessHost = new HeadlessGameHost())
 
     if (white.Width != 1 || white.Height != 1 || TextureSamplerParameters.LINEAR_CLAMP.Filtering != TextureFilteringMode.Linear)
         throw new InvalidOperationException("Texture or sampler API check failed under NativeAOT.");
+
+    if (headlessHost.Renderer.LastFrameDrawCallCount == 0 || headlessHost.Renderer.LastFrameQuadCount < 2)
+        throw new InvalidOperationException("Renderer quad batch telemetry check failed under NativeAOT.");
 }
 
 var viewport = new Viewport(new RectangleI(0, 0, 1280, 720));
