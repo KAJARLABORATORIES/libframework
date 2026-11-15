@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
+using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging;
 using SDL3;
 
@@ -91,8 +91,8 @@ public sealed class HeadlessGameHostTests
     {
         using var hostA = new HeadlessGameHost();
         using var hostB = new HeadlessGameHost();
-        using var providerA = new CapturingProvider();
-        using var providerB = new CapturingProvider();
+        using var providerA = new CapturingLoggerProvider();
+        using var providerB = new CapturingLoggerProvider();
 
         hostA.LoggerFactory.AddProvider(providerA);
         hostB.LoggerFactory.AddProvider(providerB);
@@ -112,13 +112,13 @@ public sealed class HeadlessGameHostTests
         var entriesA = providerA.Entries.ToArray();
         var entriesB = providerB.Entries.ToArray();
 
-        Assert.Contains(entriesA, e => e.Contains("ALPHA-load", StringComparison.Ordinal));
-        Assert.Contains(entriesA, e => e.Contains("ALPHA-update-15", StringComparison.Ordinal));
-        Assert.DoesNotContain(entriesA, e => e.Contains("BRAVO", StringComparison.Ordinal));
+        Assert.Contains(entriesA, e => e.Message.Contains("ALPHA-load", StringComparison.Ordinal));
+        Assert.Contains(entriesA, e => e.Message.Contains("ALPHA-update-15", StringComparison.Ordinal));
+        Assert.DoesNotContain(entriesA, e => e.Message.Contains("BRAVO", StringComparison.Ordinal));
 
-        Assert.Contains(entriesB, e => e.Contains("BRAVO-load", StringComparison.Ordinal));
-        Assert.Contains(entriesB, e => e.Contains("BRAVO-update-15", StringComparison.Ordinal));
-        Assert.DoesNotContain(entriesB, e => e.Contains("ALPHA", StringComparison.Ordinal));
+        Assert.Contains(entriesB, e => e.Message.Contains("BRAVO-load", StringComparison.Ordinal));
+        Assert.Contains(entriesB, e => e.Message.Contains("BRAVO-update-15", StringComparison.Ordinal));
+        Assert.DoesNotContain(entriesB, e => e.Message.Contains("ALPHA", StringComparison.Ordinal));
 
         var logContentA = readHostLogFile(hostA);
         var logContentB = readHostLogFile(hostB);
@@ -445,34 +445,6 @@ public sealed class HeadlessGameHostTests
                 drawObserved.Dispose();
 
             base.Dispose(disposing);
-        }
-    }
-
-    private sealed class CapturingProvider : ILoggerProvider
-    {
-        public ConcurrentQueue<string> Entries { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(CapturingProvider owner) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                owner.Entries.Enqueue(formatter(state, exception));
-            }
         }
     }
 }

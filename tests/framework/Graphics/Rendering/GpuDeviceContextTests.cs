@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
+using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging;
 
 namespace kajarlabs.Framework.Tests.Graphics.Rendering;
@@ -357,14 +357,12 @@ public sealed class GpuDeviceContextTests
         Assert.False(backend.UseAfterFreeDetected);
     }
 
-    private sealed class FakeGpuBackend : IGpuBackend
+    private sealed class FakeGpuBackend : StubGpuBackend
     {
         private readonly Lock sync = new();
         private readonly HashSet<nint> activeTextures = [];
         private readonly Dictionary<nint, bool> fences = [];
         private readonly HashSet<nint> drawCommandBuffers = [];
-
-        private nint nextHandle = 0x10000;
 
         public List<string> Calls { get; } = [];
         public List<nint> CreatedTextures { get; } = [];
@@ -378,8 +376,6 @@ public sealed class GpuDeviceContextTests
         public GpuPresentMode ConfiguredPresentMode { get; private set; }
         public GpuTextureFormat SwapchainFormat { get; init; } = new(12);
         public GpuTextureFormat OffscreenFormat { get; init; } = new(12);
-        public int PixelWidth { get; set; } = 1280;
-        public int PixelHeight { get; set; } = 720;
         public bool Minimized { get; set; }
         public bool ReturnNullSwapchainTexture { get; set; }
         public bool AutoSignalFences { get; init; } = true;
@@ -392,23 +388,23 @@ public sealed class GpuDeviceContextTests
         public uint LastBlitSourceHeight { get; private set; }
         public bool UseAfterFreeDetected { get; private set; }
 
-        public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver)
+        public override nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver)
         {
             lock (sync)
             {
                 Calls.Add(nameof(CreateDevice));
                 RequestedShaderFormats = shaderFormats;
-                return ++nextHandle;
+                return NextHandle();
             }
         }
 
-        public void DestroyDevice(nint device)
+        public override void DestroyDevice(nint device)
         {
             lock (sync)
                 Calls.Add(nameof(DestroyDevice));
         }
 
-        public string? GetDeviceDriver(nint device)
+        public override string? GetDeviceDriver(nint device)
         {
             lock (sync)
             {
@@ -417,7 +413,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public GpuShaderFormats GetSupportedShaderFormats(nint device)
+        public override GpuShaderFormats GetSupportedShaderFormats(nint device)
         {
             lock (sync)
             {
@@ -426,7 +422,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool ClaimWindow(nint device, nint windowHandle)
+        public override bool ClaimWindow(nint device, nint windowHandle)
         {
             lock (sync)
             {
@@ -435,13 +431,13 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public void ReleaseWindow(nint device, nint windowHandle)
+        public override void ReleaseWindow(nint device, nint windowHandle)
         {
             lock (sync)
                 Calls.Add(nameof(ReleaseWindow));
         }
 
-        public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition)
+        public override bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition)
         {
             lock (sync)
             {
@@ -450,7 +446,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode)
+        public override bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode)
         {
             lock (sync)
             {
@@ -459,7 +455,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool SetSwapchainParameters(
+        public override bool SetSwapchainParameters(
             nint device,
             nint windowHandle,
             GpuSwapchainComposition composition,
@@ -473,7 +469,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle)
+        public override GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle)
         {
             lock (sync)
             {
@@ -482,7 +478,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat)
+        public override GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat)
         {
             lock (sync)
             {
@@ -491,7 +487,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool GetWindowPixelSize(nint windowHandle, out int width, out int height)
+        public override bool GetWindowPixelSize(nint windowHandle, out int width, out int height)
         {
             lock (sync)
             {
@@ -501,27 +497,25 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool IsWindowMinimized(nint windowHandle)
+        public override bool IsWindowMinimized(nint windowHandle)
         {
             lock (sync)
                 return Minimized;
         }
 
-        public nint CreateTexture(nint device, in GpuTextureDescription description)
+        public override nint CreateTexture(nint device, in GpuTextureDescription description)
         {
             lock (sync)
             {
                 Calls.Add(nameof(CreateTexture));
-                var handle = ++nextHandle;
+                var handle = NextHandle();
                 activeTextures.Add(handle);
                 CreatedTextures.Add(handle);
                 return handle;
             }
         }
 
-        public GpuTextureFormat Rgba8TextureFormat => new(12);
-
-        public void ReleaseTexture(nint device, nint texture)
+        public override void ReleaseTexture(nint device, nint texture)
         {
             lock (sync)
             {
@@ -531,86 +525,18 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public nint CreateSampler(nint device, TextureSamplerParameters parameters)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseSampler(nint device, nint sampler)
-        {
-        }
-
-        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseTransferBuffer(nint device, nint transferBuffer)
-        {
-        }
-
-        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
-        {
-        }
-
-        public void UnmapTransferBuffer(nint device, nint transferBuffer)
-        {
-        }
-
-        public nint BeginCopyPass(nint commandBuffer)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
-        {
-        }
-
-        public void EndCopyPass(nint copyPass)
-        {
-        }
-
-        public nint CreateShader(nint device, in GpuShaderCreateDescription description)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseShader(nint device, nint shader)
-        {
-        }
-
-        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseGraphicsPipeline(nint device, nint pipeline)
-        {
-        }
-
-        public nint AcquireCommandBuffer(nint device)
+        public override nint AcquireCommandBuffer(nint device)
         {
             lock (sync)
             {
                 Calls.Add(nameof(AcquireCommandBuffer));
-                var cmd = ++nextHandle;
+                var cmd = NextHandle();
                 drawCommandBuffers.Add(cmd);
                 return cmd;
             }
         }
 
-        public bool SubmitCommandBuffer(nint commandBuffer)
+        public override bool SubmitCommandBuffer(nint commandBuffer)
         {
             lock (sync)
             {
@@ -621,19 +547,19 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
+        public override nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
         {
             lock (sync)
             {
                 Calls.Add(nameof(SubmitCommandBufferAndAcquireFence));
                 drawCommandBuffers.Remove(commandBuffer);
-                var fence = ++nextHandle;
+                var fence = NextHandle();
                 fences[fence] = AutoSignalFences;
                 return fence;
             }
         }
 
-        public bool CancelCommandBuffer(nint commandBuffer)
+        public override bool CancelCommandBuffer(nint commandBuffer)
         {
             lock (sync)
             {
@@ -644,13 +570,13 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+        public override void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
         {
             lock (sync)
                 Calls.Add(nameof(ClearColorTarget));
         }
 
-        public bool AcquireSwapchainTexture(
+        public override bool AcquireSwapchainTexture(
             nint commandBuffer,
             nint windowHandle,
             out nint swapchainTexture,
@@ -670,14 +596,14 @@ public sealed class GpuDeviceContextTests
                     return true;
                 }
 
-                swapchainTexture = ++nextHandle;
+                swapchainTexture = NextHandle();
                 width = (uint)Math.Max(0, PixelWidth);
                 height = (uint)Math.Max(0, PixelHeight);
                 return true;
             }
         }
 
-        public void BlitTexture(
+        public override void BlitTexture(
             nint commandBuffer,
             nint sourceTexture,
             uint sourceWidth,
@@ -699,7 +625,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool QueryFence(nint device, nint fence)
+        public override bool QueryFence(nint device, nint fence)
         {
             lock (sync)
             {
@@ -708,7 +634,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool WaitForFences(nint device, ReadOnlySpan<nint> fencesToWait)
+        public override bool WaitForFences(nint device, ReadOnlySpan<nint> fencesToWait)
         {
             lock (sync)
             {
@@ -722,7 +648,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public void ReleaseFence(nint device, nint fence)
+        public override void ReleaseFence(nint device, nint fence)
         {
             lock (sync)
             {
@@ -731,7 +657,7 @@ public sealed class GpuDeviceContextTests
             }
         }
 
-        public bool WaitForIdle(nint device)
+        public override bool WaitForIdle(nint device)
         {
             lock (sync)
             {
@@ -751,43 +677,6 @@ public sealed class GpuDeviceContextTests
         {
             foreach (var key in fences.Keys.ToList())
                 fences[key] = true;
-        }
-    }
-
-    private sealed class CapturingLoggerProvider : ILoggerProvider
-    {
-        public ConcurrentQueue<(string Category, LogLevel Level, string Message)> Entries { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this, categoryName);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger : ILogger
-        {
-            private readonly CapturingLoggerProvider owner;
-            private readonly string categoryName;
-
-            public CapturingLogger(CapturingLoggerProvider owner, string categoryName)
-            {
-                this.owner = owner;
-                this.categoryName = categoryName;
-            }
-
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                owner.Entries.Enqueue((categoryName, logLevel, formatter(state, exception)));
-            }
         }
     }
 }
