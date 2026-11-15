@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
@@ -224,9 +225,9 @@ public sealed class SdlGpuRendererTests
 
         renderer.BeginFrame();
         renderer.DrawQuad(renderer.WhitePixel, new RectangleF(0f, 0f, 10f, 10f), Color4.WHITE);
-        renderer.DrawQuad(renderer.WhitePixel, new RectangleF(10f, 0f, 10f, 10f), Color4.RED);
+        renderer.DrawQuad(renderer.WhitePixel, new Quad(10f, 0f, 10f, 10f) * Matrix3x2.CreateRotation(0.5f), Color4.RED);
         renderer.SetBlending(BlendingParameters.ADDITIVE);
-        renderer.DrawQuad(texture, new RectangleF(20f, 0f, 10f, 10f), Color4.GREEN);
+        renderer.DrawQuad(texture, new Quad(20f, 0f, 10f, 10f), new RectangleF(0f, 0f, 0.5f, 0.5f), Color4.GREEN);
         renderer.EndFrame();
 
         Assert.Equal(2, renderer.LastFrameDrawCallCount);

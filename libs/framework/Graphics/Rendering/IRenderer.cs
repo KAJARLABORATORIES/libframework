@@ -73,4 +73,15 @@ public interface IRenderer
     /// Queues a textured, color-tinted 2D quad with explicit normalized UV coordinates.
     /// </summary>
     void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color);
+
+    /// <summary>
+    /// Queues a textured, color-tinted 2D transformed <see cref="Quad"/> covering the entire texture
+    /// using full <c>[0, 1]</c> UVs.
+    /// </summary>
+    void DrawQuad(ITexture texture, Quad destination, Color4 color);
+
+    /// <summary>
+    /// Queues a textured, color-tinted 2D transformed <see cref="Quad"/> with explicit normalized UV coordinates.
+    /// </summary>
+    void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color);
 }

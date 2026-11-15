@@ -5,6 +5,7 @@ namespace kajarlabs.Framework.Graphics.Rendering;
 
 internal sealed class NullRenderer : IHostRenderer
 {
+    private static readonly RectangleF full_texture_coords = new(0f, 0f, 1f, 1f);
     private readonly Lock stateLock = new();
     private readonly NullTexture whitePixel = new(1, 1, allowUserDispose: false);
     private long completedFrames;
@@ -144,9 +145,15 @@ internal sealed class NullRenderer : IHostRenderer
     }
 
     public void DrawQuad(ITexture texture, RectangleF destination, Color4 color)
-        => DrawQuad(texture, destination, new RectangleF(0f, 0f, 1f, 1f), color);
+        => DrawQuad(texture, Quad.FromRectangle(destination), full_texture_coords, color);
 
     public void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color)
+        => DrawQuad(texture, Quad.FromRectangle(destination), textureCoords, color);
+
+    public void DrawQuad(ITexture texture, Quad destination, Color4 color)
+        => DrawQuad(texture, destination, full_texture_coords, color);
+
+    public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
     {
         ArgumentNullException.ThrowIfNull(texture);
 

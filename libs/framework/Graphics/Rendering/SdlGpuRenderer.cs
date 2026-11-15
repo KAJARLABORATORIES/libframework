@@ -6,6 +6,7 @@ namespace kajarlabs.Framework.Graphics.Rendering;
 
 internal sealed class SdlGpuRenderer : IHostRenderer
 {
+    private static readonly RectangleF full_texture_coords = new(0f, 0f, 1f, 1f);
     private readonly IGpuBackend backend;
     private readonly int maxQuadsPerBatch;
     private readonly Lock viewportLock = new();
@@ -163,9 +164,15 @@ internal sealed class SdlGpuRenderer : IHostRenderer
         => Volatile.Read(ref quadBatcher)?.SetProjection(projection);
 
     public void DrawQuad(ITexture texture, RectangleF destination, Color4 color)
-        => DrawQuad(texture, destination, new RectangleF(0f, 0f, 1f, 1f), color);
+        => DrawQuad(texture, Quad.FromRectangle(destination), full_texture_coords, color);
 
     public void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color)
+        => DrawQuad(texture, Quad.FromRectangle(destination), textureCoords, color);
+
+    public void DrawQuad(ITexture texture, Quad destination, Color4 color)
+        => DrawQuad(texture, destination, full_texture_coords, color);
+
+    public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
     {
         var batcher = Volatile.Read(ref quadBatcher)
             ?? throw new InvalidOperationException("Renderer quad batcher is not initialized.");
