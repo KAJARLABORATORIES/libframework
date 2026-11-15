@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Numerics;
 using Microsoft.Extensions.Logging;
 
@@ -6,20 +7,37 @@ namespace kajarlabs.Framework.Graphics.Rendering;
 internal sealed class SdlGpuRenderer : IHostRenderer
 {
     private readonly IGpuBackend backend;
+    private readonly int maxQuadsPerBatch;
     private readonly Lock viewportLock = new();
     private GpuPipelineCache? pipelineCache;
     private GpuSamplerCache? samplerCache;
     private GpuTextureManager? textureManager;
+    private GpuQuadBatcher? quadBatcher;
     private GpuOffscreenFrame activeFrame;
     private bool hasActiveFrame;
-    private Color4? pendingClearColor;
+    private int lastFrameDrawCallCount;
+    private int lastFrameQuadCount;
 
-    public SdlGpuRenderer(IGpuBackend backend, ILogger logger, int initialWidth = 0, int initialHeight = 0)
+    public SdlGpuRenderer(
+        IGpuBackend backend,
+        ILogger logger,
+        int initialWidth = 0,
+        int initialHeight = 0,
+        int maxQuadsPerBatch = GpuQuadBatcher.DEFAULT_MAX_QUADS_PER_BATCH)
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(logger);
 
+        if (maxQuadsPerBatch <= 0 || maxQuadsPerBatch > GpuQuadBatcher.MAX_QUADS_WITH_16BIT_INDICES)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxQuadsPerBatch),
+                maxQuadsPerBatch,
+                $"Batch capacity must be in [1, {GpuQuadBatcher.MAX_QUADS_WITH_16BIT_INDICES}].");
+        }
+
         this.backend = backend;
+        this.maxQuadsPerBatch = maxQuadsPerBatch;
         Context = new GpuDeviceContext(backend, logger);
         Viewport = new Viewport(Math.Max(0, initialWidth), Math.Max(0, initialHeight));
     }
@@ -49,6 +67,10 @@ internal sealed class SdlGpuRenderer : IHostRenderer
         }
     }
 
+    public int LastFrameDrawCallCount => Volatile.Read(ref lastFrameDrawCallCount);
+
+    public int LastFrameQuadCount => Volatile.Read(ref lastFrameQuadCount);
+
     internal GpuDeviceContext Context { get; }
 
     internal GpuPipelineCache? PipelineCache => Volatile.Read(ref pipelineCache);
@@ -56,6 +78,8 @@ internal sealed class SdlGpuRenderer : IHostRenderer
     internal GpuSamplerCache? SamplerCache => Volatile.Read(ref samplerCache);
 
     internal GpuTextureManager? TextureManager => Volatile.Read(ref textureManager);
+
+    internal GpuQuadBatcher? QuadBatcher => Volatile.Read(ref quadBatcher);
 
     public ITexture CreateTexture(int width, int height)
     {
@@ -69,24 +93,32 @@ internal sealed class SdlGpuRenderer : IHostRenderer
     {
         Context.Initialize(windowHandle);
 
-        var createdPipelineCache = new GpuPipelineCache(backend, Context.DeviceHandle, Context.SupportedShaderFormats);
-        var createdSamplerCache = new GpuSamplerCache(backend, Context.DeviceHandle);
-        var createdTextureManager = new GpuTextureManager(backend, Context.DeviceHandle);
-
-        Interlocked.Exchange(ref pipelineCache, createdPipelineCache)?.Dispose();
-        Interlocked.Exchange(ref samplerCache, createdSamplerCache)?.Dispose();
-        Interlocked.Exchange(ref textureManager, createdTextureManager)?.Dispose();
-
         var (width, height) = Context.SurfaceSize;
 
         if (width > 0 && height > 0)
             Viewport = new Viewport(width, height);
+
+        var createdPipelineCache = new GpuPipelineCache(backend, Context.DeviceHandle, Context.SupportedShaderFormats);
+        var createdSamplerCache = new GpuSamplerCache(backend, Context.DeviceHandle);
+        var createdTextureManager = new GpuTextureManager(backend, Context.DeviceHandle);
+        var createdQuadBatcher = new GpuQuadBatcher(
+            backend,
+            Context.DeviceHandle,
+            createdPipelineCache,
+            createdSamplerCache,
+            Context.OffscreenColorFormat,
+            createdTextureManager,
+            maxQuadsPerBatch);
+
+        Interlocked.Exchange(ref quadBatcher, createdQuadBatcher)?.Dispose();
+        Interlocked.Exchange(ref pipelineCache, createdPipelineCache)?.Dispose();
+        Interlocked.Exchange(ref samplerCache, createdSamplerCache)?.Dispose();
+        Interlocked.Exchange(ref textureManager, createdTextureManager)?.Dispose();
     }
 
     public void BeginFrame(Viewport? viewport = null)
     {
         hasActiveFrame = false;
-        pendingClearColor = null;
 
         Volatile.Read(ref textureManager)?.CollectCompletedDisposals();
 
@@ -95,14 +127,51 @@ internal sealed class SdlGpuRenderer : IHostRenderer
             if (viewport is { } fallbackViewport)
                 Viewport = fallbackViewport;
 
+            Volatile.Write(ref lastFrameDrawCallCount, 0);
+            Volatile.Write(ref lastFrameQuadCount, 0);
             return;
         }
 
         hasActiveFrame = true;
-        Viewport = new Viewport(activeFrame.Width, activeFrame.Height);
+        var frameViewport = new Viewport(activeFrame.Width, activeFrame.Height);
+        Viewport = frameViewport;
+
+        var batcher = Volatile.Read(ref quadBatcher)
+            ?? throw new InvalidOperationException("Renderer quad batcher is not initialized.");
+
+        batcher.BeginFrame(in activeFrame, frameViewport);
     }
 
-    public void Clear(Color4 color) => pendingClearColor = color;
+    public void Clear(Color4 color)
+    {
+        if (!hasActiveFrame)
+            return;
+
+        Volatile.Read(ref quadBatcher)?.SetClearColor(color);
+    }
+
+    public void SetBlending(BlendingParameters blending)
+        => Volatile.Read(ref quadBatcher)?.SetBlending(blending);
+
+    public void SetSampler(TextureSamplerParameters sampler)
+        => Volatile.Read(ref quadBatcher)?.SetSampler(sampler);
+
+    public void SetScissor(RectangleI? scissor)
+        => Volatile.Read(ref quadBatcher)?.SetScissor(scissor);
+
+    public void SetProjection(Matrix4x4? projection)
+        => Volatile.Read(ref quadBatcher)?.SetProjection(projection);
+
+    public void DrawQuad(ITexture texture, RectangleF destination, Color4 color)
+        => DrawQuad(texture, destination, new RectangleF(0f, 0f, 1f, 1f), color);
+
+    public void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color)
+    {
+        var batcher = Volatile.Read(ref quadBatcher)
+            ?? throw new InvalidOperationException("Renderer quad batcher is not initialized.");
+
+        batcher.DrawQuad(texture, destination, textureCoords, color);
+    }
 
     public void EndFrame(bool faulted = false)
     {
@@ -111,30 +180,28 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 
         hasActiveFrame = false;
 
+        var batcher = Volatile.Read(ref quadBatcher);
+        batcher?.EndFrame(faulted);
+
         if (faulted)
         {
+            Volatile.Write(ref lastFrameDrawCallCount, 0);
+            Volatile.Write(ref lastFrameQuadCount, 0);
             Context.CancelOffscreenFrame(in activeFrame);
             activeFrame = default;
-            pendingClearColor = null;
             return;
         }
 
         var textures = Volatile.Read(ref textureManager);
-        textures?.FlushPendingUploads(activeFrame.CommandBuffer);
-
-        backend.ClearColorTarget(
-            activeFrame.CommandBuffer,
-            activeFrame.ColorTargetTexture,
-            pendingClearColor ?? Color4.BLACK);
-
         var acquireFence = textures is { HasUnfencedDisposals: true };
         Context.EndOffscreenFrame(in activeFrame, acquireFence, out var submittedFence);
 
         if (acquireFence && submittedFence != nint.Zero)
             textures?.AttachDisposalsToFence(submittedFence);
 
+        Volatile.Write(ref lastFrameDrawCallCount, batcher?.LastFrameDrawCallCount ?? 0);
+        Volatile.Write(ref lastFrameQuadCount, batcher?.LastFrameQuadCount ?? 0);
         activeFrame = default;
-        pendingClearColor = null;
     }
 
     public bool Present() => Context.PresentLatestFrame();
@@ -187,6 +254,7 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 
     private void disposeRenderingCaches()
     {
+        Interlocked.Exchange(ref quadBatcher, null)?.Dispose();
         Interlocked.Exchange(ref textureManager, null)?.Dispose();
         Interlocked.Exchange(ref samplerCache, null)?.Dispose();
         Interlocked.Exchange(ref pipelineCache, null)?.Dispose();

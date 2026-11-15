@@ -1,3 +1,5 @@
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using kajarlabs.Framework.Numerics;
 using SDL3;
@@ -309,6 +311,155 @@ internal sealed class SdlGpuBackend : IGpuBackend
             SDL.ReleaseGPUGraphicsPipeline(device, pipeline);
     }
 
+    public nint CreateBuffer(nint device, GpuBufferUsage usage, uint sizeInBytes)
+    {
+        var createInfo = new SDL.GPUBufferCreateInfo
+        {
+            Usage = toSdlBufferUsage(usage),
+            Size = sizeInBytes,
+        };
+
+        return SDL.CreateGPUBuffer(device, in createInfo);
+    }
+
+    public void ReleaseBuffer(nint device, nint buffer)
+    {
+        if (device != nint.Zero && buffer != nint.Zero)
+            SDL.ReleaseGPUBuffer(device, buffer);
+    }
+
+    public void UploadToBuffer(
+        nint copyPass,
+        nint transferBuffer,
+        uint transferOffset,
+        nint destinationBuffer,
+        uint destinationOffset,
+        uint sizeInBytes,
+        bool cycle)
+    {
+        var location = new SDL.GPUTransferBufferLocation
+        {
+            TransferBuffer = transferBuffer,
+            Offset = transferOffset,
+        };
+
+        var region = new SDL.GPUBufferRegion
+        {
+            Buffer = destinationBuffer,
+            Offset = destinationOffset,
+            Size = sizeInBytes,
+        };
+
+        SDL.UploadToGPUBuffer(copyPass, in location, in region, cycle);
+    }
+
+    public nint BeginRenderPass(nint commandBuffer, nint colorTargetTexture, Color4? clearColor)
+    {
+        var colorTargetInfo = new SDL.GPUColorTargetInfo
+        {
+            Texture = colorTargetTexture,
+            ClearColor = clearColor is { } clear
+                ? new SDL.FColor(clear.R, clear.G, clear.B, clear.A)
+                : default,
+            LoadOp = clearColor.HasValue ? SDL.GPULoadOp.Clear : SDL.GPULoadOp.Load,
+            StoreOp = SDL.GPUStoreOp.Store,
+        };
+
+        ReadOnlySpan<SDL.GPUColorTargetInfo> targets = [colorTargetInfo];
+        return SDL.BeginGPURenderPass(commandBuffer, targets, 1, nint.Zero);
+    }
+
+    public void EndRenderPass(nint renderPass)
+    {
+        if (renderPass != nint.Zero)
+            SDL.EndGPURenderPass(renderPass);
+    }
+
+    public void BindGraphicsPipeline(nint renderPass, nint pipeline)
+        => SDL.BindGPUGraphicsPipeline(renderPass, pipeline);
+
+    public void SetViewport(nint renderPass, Viewport viewport)
+    {
+        var sdlViewport = new SDL.GPUViewport
+        {
+            X = viewport.X,
+            Y = viewport.Y,
+            W = viewport.Width,
+            H = viewport.Height,
+            MinDepth = viewport.MinDepth,
+            MaxDepth = viewport.MaxDepth,
+        };
+
+        SDL.SetGPUViewport(renderPass, in sdlViewport);
+    }
+
+    public void SetScissor(nint renderPass, RectangleI scissor)
+    {
+        var rect = new SDL.Rect
+        {
+            X = scissor.X,
+            Y = scissor.Y,
+            W = scissor.Width,
+            H = scissor.Height,
+        };
+
+        SDL.SetGPUScissor(renderPass, in rect);
+    }
+
+    public void BindVertexBuffer(nint renderPass, uint firstSlot, nint vertexBuffer, uint offset)
+    {
+        ReadOnlySpan<SDL.GPUBufferBinding> bindings =
+        [
+            new SDL.GPUBufferBinding
+            {
+                Buffer = vertexBuffer,
+                Offset = offset,
+            },
+        ];
+
+        SDL.BindGPUVertexBuffers(renderPass, firstSlot, bindings, 1);
+    }
+
+    public void BindIndexBuffer(nint renderPass, nint indexBuffer, uint offset, GpuIndexElementSize indexElementSize)
+    {
+        var binding = new SDL.GPUBufferBinding
+        {
+            Buffer = indexBuffer,
+            Offset = offset,
+        };
+
+        SDL.BindGPUIndexBuffer(renderPass, in binding, toSdlIndexElementSize(indexElementSize));
+    }
+
+    public void BindFragmentSampler(nint renderPass, uint firstSlot, nint texture, nint sampler)
+    {
+        ReadOnlySpan<SDL.GPUTextureSamplerBinding> bindings =
+        [
+            new SDL.GPUTextureSamplerBinding
+            {
+                Texture = texture,
+                Sampler = sampler,
+            },
+        ];
+
+        SDL.BindGPUFragmentSamplers(renderPass, firstSlot, bindings, 1);
+    }
+
+    public void PushVertexUniformData(nint commandBuffer, uint slotIndex, in Matrix4x4 matrix)
+    {
+        var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(in matrix), 1));
+        SDL.PushGPUVertexUniformData(commandBuffer, slotIndex, bytes, (uint)bytes.Length);
+    }
+
+    public void DrawIndexedPrimitives(
+        nint renderPass,
+        uint numIndices,
+        uint numInstances,
+        uint firstIndex,
+        int vertexOffset,
+        uint firstInstance)
+        => SDL.DrawGPUIndexedPrimitives(renderPass, numIndices, numInstances, firstIndex, vertexOffset, firstInstance);
+
     public nint AcquireCommandBuffer(nint device) => SDL.AcquireGPUCommandBuffer(device);
 
     public bool SubmitCommandBuffer(nint commandBuffer) => SDL.SubmitGPUCommandBuffer(commandBuffer);
@@ -319,21 +470,7 @@ internal sealed class SdlGpuBackend : IGpuBackend
     public bool CancelCommandBuffer(nint commandBuffer) => SDL.CancelGPUCommandBuffer(commandBuffer);
 
     public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
-    {
-        var colorTargetInfo = new SDL.GPUColorTargetInfo
-        {
-            Texture = colorTargetTexture,
-            ClearColor = new SDL.FColor(clearColor.R, clearColor.G, clearColor.B, clearColor.A),
-            LoadOp = SDL.GPULoadOp.Clear,
-            StoreOp = SDL.GPUStoreOp.Store,
-        };
-
-        ReadOnlySpan<SDL.GPUColorTargetInfo> targets = [colorTargetInfo];
-        var renderPass = SDL.BeginGPURenderPass(commandBuffer, targets, 1, nint.Zero);
-
-        if (renderPass != nint.Zero)
-            SDL.EndGPURenderPass(renderPass);
-    }
+        => EndRenderPass(BeginRenderPass(commandBuffer, colorTargetTexture, clearColor));
 
     public bool AcquireSwapchainTexture(
         nint commandBuffer,
@@ -571,5 +708,25 @@ internal sealed class SdlGpuBackend : IGpuBackend
             GpuTransferBufferUsage.Upload => SDL.GPUTransferBufferUsage.Upload,
             GpuTransferBufferUsage.Download => SDL.GPUTransferBufferUsage.Download,
             _ => throw new ArgumentOutOfRangeException(nameof(usage), usage, null),
+        };
+
+    private static SDL.GPUBufferUsageFlags toSdlBufferUsage(GpuBufferUsage usage)
+    {
+        SDL.GPUBufferUsageFlags result = default;
+
+        if ((usage & GpuBufferUsage.Vertex) != 0)
+            result |= SDL.GPUBufferUsageFlags.Vertex;
+        if ((usage & GpuBufferUsage.Index) != 0)
+            result |= SDL.GPUBufferUsageFlags.Index;
+
+        return result;
+    }
+
+    private static SDL.GPUIndexElementSize toSdlIndexElementSize(GpuIndexElementSize size)
+        => size switch
+        {
+            GpuIndexElementSize.SixteenBit => SDL.GPUIndexElementSize.IndexElementSize16Bit,
+            GpuIndexElementSize.ThirtyTwoBit => SDL.GPUIndexElementSize.IndexElementSize32Bit,
+            _ => throw new ArgumentOutOfRangeException(nameof(size), size, null),
         };
 }

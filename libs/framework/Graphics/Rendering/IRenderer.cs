@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Numerics;
 
 namespace kajarlabs.Framework.Graphics.Rendering;
@@ -19,6 +20,16 @@ public interface IRenderer
     ITexture WhitePixel { get; }
 
     /// <summary>
+    /// Gets the number of indexed draw calls submitted during the most recently completed frame.
+    /// </summary>
+    int LastFrameDrawCallCount { get; }
+
+    /// <summary>
+    /// Gets the number of quads queued and submitted during the most recently completed frame.
+    /// </summary>
+    int LastFrameQuadCount { get; }
+
+    /// <summary>
     /// Creates a 2D RGBA8 texture with the specified pixel dimensions.
     /// </summary>
     /// <param name="width">The texture width in pixels (must be positive).</param>
@@ -30,4 +41,36 @@ public interface IRenderer
     /// </summary>
     /// <param name="color">The RGBA clear color.</param>
     void Clear(Color4 color);
+
+    /// <summary>
+    /// Sets the active blending configuration for subsequent draw operations in the current frame.
+    /// </summary>
+    void SetBlending(BlendingParameters blending);
+
+    /// <summary>
+    /// Sets the active texture sampler configuration for subsequent draw operations in the current frame.
+    /// </summary>
+    void SetSampler(TextureSamplerParameters sampler);
+
+    /// <summary>
+    /// Sets the active scissor rectangle in pixel coordinates, or <see langword="null"/> to restore
+    /// the full active viewport bounds.
+    /// </summary>
+    void SetScissor(RectangleI? scissor);
+
+    /// <summary>
+    /// Sets the active orthographic or custom vertex projection matrix, or <see langword="null"/>
+    /// to restore the default projection matching <see cref="Viewport"/>.
+    /// </summary>
+    void SetProjection(Matrix4x4? projection);
+
+    /// <summary>
+    /// Queues a textured, color-tinted 2D quad covering the entire texture using full <c>[0, 1]</c> UVs.
+    /// </summary>
+    void DrawQuad(ITexture texture, RectangleF destination, Color4 color);
+
+    /// <summary>
+    /// Queues a textured, color-tinted 2D quad with explicit normalized UV coordinates.
+    /// </summary>
+    void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color);
 }

@@ -196,6 +196,20 @@ internal enum GpuTransferBufferUsage
     Download = 1,
 }
 
+[Flags]
+internal enum GpuBufferUsage : uint
+{
+    None = 0,
+    Vertex = 1 << 0,
+    Index = 1 << 1,
+}
+
+internal enum GpuIndexElementSize
+{
+    SixteenBit = 0,
+    ThirtyTwoBit = 1,
+}
+
 internal readonly record struct GpuTextureUploadSource(
     nint TransferBuffer,
     uint Offset,

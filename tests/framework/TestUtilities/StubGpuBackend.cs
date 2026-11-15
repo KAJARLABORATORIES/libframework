@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
@@ -128,6 +129,68 @@ internal abstract class StubGpuBackend : IGpuBackend
         => NextHandle();
 
     public virtual void ReleaseGraphicsPipeline(nint device, nint pipeline)
+    {
+    }
+
+    public virtual nint CreateBuffer(nint device, GpuBufferUsage usage, uint sizeInBytes) => NextHandle();
+
+    public virtual void ReleaseBuffer(nint device, nint buffer)
+    {
+    }
+
+    public virtual void UploadToBuffer(
+        nint copyPass,
+        nint transferBuffer,
+        uint transferOffset,
+        nint destinationBuffer,
+        uint destinationOffset,
+        uint sizeInBytes,
+        bool cycle)
+    {
+    }
+
+    public virtual nint BeginRenderPass(nint commandBuffer, nint colorTargetTexture, Color4? clearColor)
+        => NextHandle();
+
+    public virtual void EndRenderPass(nint renderPass)
+    {
+    }
+
+    public virtual void BindGraphicsPipeline(nint renderPass, nint pipeline)
+    {
+    }
+
+    public virtual void SetViewport(nint renderPass, Viewport viewport)
+    {
+    }
+
+    public virtual void SetScissor(nint renderPass, RectangleI scissor)
+    {
+    }
+
+    public virtual void BindVertexBuffer(nint renderPass, uint firstSlot, nint vertexBuffer, uint offset)
+    {
+    }
+
+    public virtual void BindIndexBuffer(nint renderPass, nint indexBuffer, uint offset, GpuIndexElementSize indexElementSize)
+    {
+    }
+
+    public virtual void BindFragmentSampler(nint renderPass, uint firstSlot, nint texture, nint sampler)
+    {
+    }
+
+    public virtual void PushVertexUniformData(nint commandBuffer, uint slotIndex, in Matrix4x4 matrix)
+    {
+    }
+
+    public virtual void DrawIndexedPrimitives(
+        nint renderPass,
+        uint numIndices,
+        uint numInstances,
+        uint firstIndex,
+        int vertexOffset,
+        uint firstInstance)
     {
     }
 

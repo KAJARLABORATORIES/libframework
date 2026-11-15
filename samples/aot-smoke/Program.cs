@@ -176,6 +176,14 @@ internal sealed class HeadlessSmokeGame : Game
     {
         Interlocked.Increment(ref draws);
         Renderer.Clear(Color4.BLUE);
+        Renderer.SetBlending(BlendingParameters.ALPHA);
+        Renderer.SetSampler(TextureSamplerParameters.LINEAR_CLAMP);
+        Renderer.SetScissor(new RectangleI(0, 0, 100, 100));
+        Renderer.SetProjection(GraphicsMath.CreateOrthographicProjection(Renderer.Viewport));
+        Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(10f, 10f, 32f, 32f), Color4.WHITE);
+        Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(50f, 10f, 16f, 16f), new RectangleF(0f, 0f, 0.5f, 0.5f), Color4.RED);
+        Renderer.SetScissor(null);
+        Renderer.SetProjection(null);
         drawObserved.Set();
     }
 
