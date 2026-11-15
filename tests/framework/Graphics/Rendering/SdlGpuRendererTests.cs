@@ -163,10 +163,12 @@ public sealed class SdlGpuRendererTests
         Assert.Null(renderer.PipelineCache);
         Assert.Null(renderer.SamplerCache);
         Assert.Null(renderer.TextureManager);
+        Assert.Null(renderer.QuadBatcher);
         Assert.Equal(backend.CreatedPipelines, backend.ReleasedPipelines);
         Assert.Equal(backend.CreatedShaders, backend.ReleasedShaders);
         Assert.Equal(backend.CreatedSamplers, backend.ReleasedSamplers);
         Assert.Equal(backend.CreatedTextures, backend.ReleasedTextures);
+        Assert.Equal(backend.CreatedBuffers, backend.ReleasedBuffers);
 
         var destroyIndex = backend.LifecycleEvents.IndexOf("DestroyDevice");
         Assert.True(destroyIndex > 0);
@@ -174,6 +176,61 @@ public sealed class SdlGpuRendererTests
         Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseShader") < destroyIndex);
         Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseSampler") < destroyIndex);
         Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseTexture") < destroyIndex);
+        Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseBuffer") < destroyIndex);
+    }
+
+    [Fact]
+    public void MidFrameFlushUploadsPendingTexturesBeforeOpeningRenderPass()
+    {
+        var backend = new FakeGpuBackend
+        {
+            PixelWidth = 640,
+            PixelHeight = 480,
+        };
+        using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance, maxQuadsPerBatch: 1);
+        renderer.Initialize(fake_window);
+
+        using var custom = renderer.CreateTexture(2, 2);
+        custom.SetData(new byte[2 * 2 * 4]);
+        backend.LifecycleEvents.Clear();
+
+        renderer.BeginFrame();
+        // Second DrawQuad exceeds capacity=1, forcing an immediate mid-frame flush
+        renderer.DrawQuad(custom, new RectangleF(0f, 0f, 10f, 10f), Color4.WHITE);
+        renderer.DrawQuad(custom, new RectangleF(10f, 0f, 10f, 10f), Color4.WHITE);
+        renderer.EndFrame();
+
+        var uploadIndex = backend.LifecycleEvents.IndexOf("UploadToTexture");
+        var renderPassIndex = backend.LifecycleEvents.IndexOf("BeginRenderPass");
+
+        Assert.True(uploadIndex >= 0);
+        Assert.True(renderPassIndex > uploadIndex);
+        Assert.Equal(2, renderer.LastFrameDrawCallCount);
+        Assert.Equal(2, renderer.LastFrameQuadCount);
+    }
+
+    [Fact]
+    public void NullRendererTracksDrawCallAndQuadTelemetryAcrossFrames()
+    {
+        using var renderer = new NullRenderer(800, 600);
+        using var texture = renderer.CreateTexture(4, 4);
+
+        renderer.BeginFrame();
+        renderer.Clear(Color4.BLACK);
+        renderer.EndFrame();
+
+        Assert.Equal(0, renderer.LastFrameDrawCallCount);
+        Assert.Equal(0, renderer.LastFrameQuadCount);
+
+        renderer.BeginFrame();
+        renderer.DrawQuad(renderer.WhitePixel, new RectangleF(0f, 0f, 10f, 10f), Color4.WHITE);
+        renderer.DrawQuad(renderer.WhitePixel, new RectangleF(10f, 0f, 10f, 10f), Color4.RED);
+        renderer.SetBlending(BlendingParameters.ADDITIVE);
+        renderer.DrawQuad(texture, new RectangleF(20f, 0f, 10f, 10f), Color4.GREEN);
+        renderer.EndFrame();
+
+        Assert.Equal(2, renderer.LastFrameDrawCallCount);
+        Assert.Equal(3, renderer.LastFrameQuadCount);
     }
 
     private sealed class FakeGpuBackend : StubGpuBackend
@@ -190,7 +247,31 @@ public sealed class SdlGpuRendererTests
         public List<nint> ReleasedSamplers { get; } = [];
         public List<nint> CreatedTextures { get; } = [];
         public List<nint> ReleasedTextures { get; } = [];
+        public List<nint> CreatedBuffers { get; } = [];
+        public List<nint> ReleasedBuffers { get; } = [];
         public List<string> LifecycleEvents { get; } = [];
+
+        public override nint CreateBuffer(nint device, GpuBufferUsage usage, uint sizeInBytes)
+        {
+            var handle = NextHandle();
+            CreatedBuffers.Add(handle);
+            return handle;
+        }
+
+        public override void ReleaseBuffer(nint device, nint buffer)
+        {
+            ReleasedBuffers.Add(buffer);
+            LifecycleEvents.Add(nameof(ReleaseBuffer));
+        }
+
+        public override void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
+            => LifecycleEvents.Add(nameof(UploadToTexture));
+
+        public override nint BeginRenderPass(nint commandBuffer, nint colorTargetTexture, Color4? clearColor)
+        {
+            LifecycleEvents.Add(nameof(BeginRenderPass));
+            return NextHandle();
+        }
 
         public override void DestroyDevice(nint device) => LifecycleEvents.Add(nameof(DestroyDevice));
 

@@ -16,6 +16,7 @@ public sealed class GpuTextureTests
         var backend = new TextureRecordingBackend();
         using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
         renderer.Initialize(fake_window);
+        backend.ResetCopyPassCounters();
 
         var white = renderer.WhitePixel;
         Assert.Equal(1, white.Width);
@@ -47,6 +48,7 @@ public sealed class GpuTextureTests
         var backend = new TextureRecordingBackend();
         using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
         renderer.Initialize(fake_window);
+        backend.ResetCopyPassCounters();
 
         Assert.Throws<ArgumentOutOfRangeException>(() => renderer.CreateTexture(0, 4));
         Assert.Throws<ArgumentOutOfRangeException>(() => renderer.CreateTexture(4, -1));
@@ -95,6 +97,7 @@ public sealed class GpuTextureTests
         var backend = new TextureRecordingBackend();
         using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
         renderer.Initialize(fake_window);
+        backend.ResetCopyPassCounters();
 
         // Drain initial WhitePixel upload on frame 1.
         renderer.BeginFrame();
@@ -200,6 +203,13 @@ public sealed class GpuTextureTests
         public List<nint> AcquiredDrawFences { get; } = [];
         public List<nint> ReleasedFences { get; } = [];
         public List<(GpuTextureRegion Destination, bool CycleTexture, byte[] PixelBytes)> Uploads { get; } = [];
+
+        public void ResetCopyPassCounters()
+        {
+            CopyPassCount = 0;
+            CopyPassEvents.Clear();
+            Events.Clear();
+        }
 
         public override void DestroyDevice(nint device) => Events.Add(nameof(DestroyDevice));
 

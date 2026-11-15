@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Numerics;
 
 namespace kajarlabs.Framework.Graphics.Rendering;
@@ -71,6 +72,45 @@ internal interface IGpuBackend
     nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description);
 
     void ReleaseGraphicsPipeline(nint device, nint pipeline);
+
+    nint CreateBuffer(nint device, GpuBufferUsage usage, uint sizeInBytes);
+
+    void ReleaseBuffer(nint device, nint buffer);
+
+    void UploadToBuffer(
+        nint copyPass,
+        nint transferBuffer,
+        uint transferOffset,
+        nint destinationBuffer,
+        uint destinationOffset,
+        uint sizeInBytes,
+        bool cycle);
+
+    nint BeginRenderPass(nint commandBuffer, nint colorTargetTexture, Color4? clearColor);
+
+    void EndRenderPass(nint renderPass);
+
+    void BindGraphicsPipeline(nint renderPass, nint pipeline);
+
+    void SetViewport(nint renderPass, Viewport viewport);
+
+    void SetScissor(nint renderPass, RectangleI scissor);
+
+    void BindVertexBuffer(nint renderPass, uint firstSlot, nint vertexBuffer, uint offset);
+
+    void BindIndexBuffer(nint renderPass, nint indexBuffer, uint offset, GpuIndexElementSize indexElementSize);
+
+    void BindFragmentSampler(nint renderPass, uint firstSlot, nint texture, nint sampler);
+
+    void PushVertexUniformData(nint commandBuffer, uint slotIndex, in Matrix4x4 matrix);
+
+    void DrawIndexedPrimitives(
+        nint renderPass,
+        uint numIndices,
+        uint numInstances,
+        uint firstIndex,
+        int vertexOffset,
+        uint firstInstance);
 
     nint AcquireCommandBuffer(nint device);
 

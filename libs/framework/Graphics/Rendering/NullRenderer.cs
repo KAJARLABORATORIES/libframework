@@ -1,3 +1,4 @@
+using System.Numerics;
 using kajarlabs.Framework.Numerics;
 
 namespace kajarlabs.Framework.Graphics.Rendering;
@@ -8,6 +9,16 @@ internal sealed class NullRenderer : IHostRenderer
     private readonly NullTexture whitePixel = new(1, 1, allowUserDispose: false);
     private long completedFrames;
     private int resizeCount;
+    private int lastFrameDrawCallCount;
+    private int lastFrameQuadCount;
+    private int frameDrawCallCount;
+    private int frameQuadCount;
+    private int queuedQuadCount;
+    private ITexture? currentTexture;
+    private BlendingParameters currentBlending = BlendingParameters.ALPHA;
+    private TextureSamplerParameters currentSampler = TextureSamplerParameters.LINEAR_CLAMP;
+    private RectangleI? currentScissor;
+    private Matrix4x4? currentProjection;
 
     public NullRenderer(int initialWidth = 0, int initialHeight = 0)
     {
@@ -43,6 +54,10 @@ internal sealed class NullRenderer : IHostRenderer
 
     public ITexture WhitePixel => whitePixel;
 
+    public int LastFrameDrawCallCount => Volatile.Read(ref lastFrameDrawCallCount);
+
+    public int LastFrameQuadCount => Volatile.Read(ref lastFrameQuadCount);
+
     public ITexture CreateTexture(int width, int height)
     {
         TextureValidation.ValidateDimensions(width, height);
@@ -55,23 +70,140 @@ internal sealed class NullRenderer : IHostRenderer
 
     public void BeginFrame(Viewport? viewport = null)
     {
-        if (viewport is { } resolvedViewport)
+        lock (stateLock)
         {
-            lock (stateLock)
+            if (viewport is { } resolvedViewport)
                 Viewport = resolvedViewport;
+
+            currentBlending = BlendingParameters.ALPHA;
+            currentSampler = TextureSamplerParameters.LINEAR_CLAMP;
+            currentScissor = null;
+            currentProjection = null;
+            currentTexture = null;
+            queuedQuadCount = 0;
+            frameDrawCallCount = 0;
+            frameQuadCount = 0;
         }
     }
 
     public void Clear(Color4 color)
     {
         lock (stateLock)
+        {
             LastClearColor = color;
+            queuedQuadCount = 0;
+        }
+    }
+
+    public void SetBlending(BlendingParameters blending)
+    {
+        lock (stateLock)
+        {
+            if (currentBlending == blending)
+                return;
+
+            flushNullBatchLocked();
+            currentBlending = blending;
+        }
+    }
+
+    public void SetSampler(TextureSamplerParameters sampler)
+    {
+        lock (stateLock)
+        {
+            if (currentSampler == sampler)
+                return;
+
+            flushNullBatchLocked();
+            currentSampler = sampler;
+        }
+    }
+
+    public void SetScissor(RectangleI? scissor)
+    {
+        lock (stateLock)
+        {
+            if (currentScissor == scissor)
+                return;
+
+            flushNullBatchLocked();
+            currentScissor = scissor;
+        }
+    }
+
+    public void SetProjection(Matrix4x4? projection)
+    {
+        lock (stateLock)
+        {
+            if (currentProjection == projection)
+                return;
+
+            flushNullBatchLocked();
+            currentProjection = projection;
+        }
+    }
+
+    public void DrawQuad(ITexture texture, RectangleF destination, Color4 color)
+        => DrawQuad(texture, destination, new RectangleF(0f, 0f, 1f, 1f), color);
+
+    public void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color)
+    {
+        ArgumentNullException.ThrowIfNull(texture);
+
+        if (texture is not NullTexture nullTexture)
+            throw new ArgumentException("Texture does not belong to this headless renderer.", nameof(texture));
+
+        ObjectDisposedException.ThrowIf(nullTexture.IsDisposed, texture);
+
+        lock (stateLock)
+        {
+            var effectiveScissor = currentScissor is { } scissor
+                ? RectangleI.Intersect(scissor, Viewport.Bounds)
+                : Viewport.Bounds;
+
+            if (effectiveScissor.IsEmpty)
+                return;
+
+            if (queuedQuadCount > 0 && !ReferenceEquals(currentTexture, texture))
+                flushNullBatchLocked();
+
+            currentTexture = texture;
+            queuedQuadCount++;
+        }
     }
 
     public void EndFrame(bool faulted = false)
     {
-        if (!faulted)
-            Interlocked.Increment(ref completedFrames);
+        if (faulted)
+        {
+            lock (stateLock)
+            {
+                queuedQuadCount = 0;
+                Volatile.Write(ref lastFrameDrawCallCount, 0);
+                Volatile.Write(ref lastFrameQuadCount, 0);
+            }
+
+            return;
+        }
+
+        lock (stateLock)
+        {
+            flushNullBatchLocked();
+            Volatile.Write(ref lastFrameDrawCallCount, frameDrawCallCount);
+            Volatile.Write(ref lastFrameQuadCount, frameQuadCount);
+        }
+
+        Interlocked.Increment(ref completedFrames);
+    }
+
+    private void flushNullBatchLocked()
+    {
+        if (queuedQuadCount == 0)
+            return;
+
+        frameDrawCallCount++;
+        frameQuadCount += queuedQuadCount;
+        queuedQuadCount = 0;
     }
 
     public bool Present() => false;
@@ -115,6 +247,8 @@ internal sealed class NullRenderer : IHostRenderer
         public int Width { get; }
 
         public int Height { get; }
+
+        internal bool IsDisposed => Volatile.Read(ref disposed) != 0;
 
         public void SetData(ReadOnlySpan<byte> rgba8Pixels)
             => SetData(new RectangleI(0, 0, Width, Height), rgba8Pixels);
