@@ -4,6 +4,7 @@ using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
+using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging;
 using SDL3;
 
@@ -58,7 +59,7 @@ public sealed class GameHostTests : IDisposable
         };
 
         using var host = new GameHost(createTestOptions(), backend);
-        using var provider = new CapturingProvider();
+        using var provider = new CapturingLoggerProvider();
         host.LoggerFactory.AddProvider(provider);
 
         host.Run(new ImmediateExitGame());
@@ -112,7 +113,7 @@ public sealed class GameHostTests : IDisposable
         var game = new LoggingProbeGame();
 
         using var host = new GameHost(createTestOptions(), backend);
-        using var provider = new CapturingProvider();
+        using var provider = new CapturingLoggerProvider();
         host.LoggerFactory.AddProvider(provider);
 
         host.Run(game);
@@ -615,19 +616,16 @@ public sealed class GameHostTests : IDisposable
         }
     }
 
-    private sealed class FakeGpuBackend : IGpuBackend
+    private sealed class FakeGpuBackend : StubGpuBackend
     {
         private readonly Lock sync = new();
         private readonly ConcurrentQueue<string>? sharedEvents;
-        private nint nextHandle = 0x1000;
 
         public FakeGpuBackend(ConcurrentQueue<string>? sharedEvents = null)
         {
             this.sharedEvents = sharedEvents;
         }
 
-        public int PixelWidth { get; set; } = 1280;
-        public int PixelHeight { get; set; } = 720;
         public int CreateDeviceThreadId { get; private set; }
         public int ClaimWindowThreadId { get; private set; }
         public int ShutdownThreadId { get; private set; }
@@ -639,155 +637,47 @@ public sealed class GameHostTests : IDisposable
         public ConcurrentQueue<int> PresentThreadIds { get; } = new();
         public ConcurrentQueue<int> ClearThreadIds { get; } = new();
 
-        public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver)
+        public override nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver)
         {
             CreateDeviceThreadId = Environment.CurrentManagedThreadId;
             sharedEvents?.Enqueue("CreateDevice");
-            lock (sync)
-                return ++nextHandle;
+            return NextHandle();
         }
 
-        public void DestroyDevice(nint device)
+        public override void DestroyDevice(nint device)
         {
             ShutdownThreadId = Environment.CurrentManagedThreadId;
             sharedEvents?.Enqueue("DestroyDevice");
         }
 
-        public string? GetDeviceDriver(nint device) => "vulkan";
-        public GpuShaderFormats GetSupportedShaderFormats(nint device) => GpuShaderFormats.SpirV;
-
-        public bool ClaimWindow(nint device, nint windowHandle)
+        public override bool ClaimWindow(nint device, nint windowHandle)
         {
             ClaimWindowThreadId = Environment.CurrentManagedThreadId;
             sharedEvents?.Enqueue("ClaimWindow");
             return true;
         }
 
-        public void ReleaseWindow(nint device, nint windowHandle) => sharedEvents?.Enqueue("ReleaseWindow");
-        public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => true;
-        public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => true;
-        public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => true;
-        public GpuTextureFormat Rgba8TextureFormat => new(12);
-        public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => new(12);
-        public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => swapchainFormat;
+        public override void ReleaseWindow(nint device, nint windowHandle) => sharedEvents?.Enqueue("ReleaseWindow");
+        public override void ReleaseTexture(nint device, nint texture) => sharedEvents?.Enqueue("ReleaseTexture");
+        public override void ReleaseSampler(nint device, nint sampler) => sharedEvents?.Enqueue("ReleaseSampler");
+        public override void ReleaseShader(nint device, nint shader) => sharedEvents?.Enqueue("ReleaseShader");
+        public override void ReleaseGraphicsPipeline(nint device, nint pipeline) => sharedEvents?.Enqueue("ReleaseGraphicsPipeline");
 
-        public bool GetWindowPixelSize(nint windowHandle, out int width, out int height)
-        {
-            width = PixelWidth;
-            height = PixelHeight;
-            return true;
-        }
-
-        public bool IsWindowMinimized(nint windowHandle) => false;
-
-        public nint CreateTexture(nint device, in GpuTextureDescription description)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseTexture(nint device, nint texture) => sharedEvents?.Enqueue("ReleaseTexture");
-
-        public nint CreateSampler(nint device, TextureSamplerParameters parameters)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseSampler(nint device, nint sampler) => sharedEvents?.Enqueue("ReleaseSampler");
-
-        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseTransferBuffer(nint device, nint transferBuffer) => sharedEvents?.Enqueue("ReleaseTransferBuffer");
-
-        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
-        {
-        }
-
-        public void UnmapTransferBuffer(nint device, nint transferBuffer)
-        {
-        }
-
-        public nint BeginCopyPass(nint commandBuffer)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
-        {
-        }
-
-        public void EndCopyPass(nint copyPass)
-        {
-        }
-
-        public nint CreateShader(nint device, in GpuShaderCreateDescription description)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseShader(nint device, nint shader) => sharedEvents?.Enqueue("ReleaseShader");
-
-        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public void ReleaseGraphicsPipeline(nint device, nint pipeline) => sharedEvents?.Enqueue("ReleaseGraphicsPipeline");
-
-        public nint AcquireCommandBuffer(nint device)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public bool SubmitCommandBuffer(nint commandBuffer) => true;
-
-        public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
-        {
-            lock (sync)
-                return ++nextHandle;
-        }
-
-        public bool CancelCommandBuffer(nint commandBuffer)
+        public override bool CancelCommandBuffer(nint commandBuffer)
         {
             lock (sync)
                 CancelCount++;
             return true;
         }
 
-        public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+        public override void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
         {
             ClearThreadIds.Enqueue(Environment.CurrentManagedThreadId);
             lock (sync)
                 LastClearColor = clearColor;
         }
 
-        public bool AcquireSwapchainTexture(nint commandBuffer, nint windowHandle, out nint swapchainTexture, out uint width, out uint height)
-        {
-            lock (sync)
-            {
-                swapchainTexture = ++nextHandle;
-                width = (uint)Math.Max(0, PixelWidth);
-                height = (uint)Math.Max(0, PixelHeight);
-                return true;
-            }
-        }
-
-        public void BlitTexture(nint commandBuffer, nint sourceTexture, uint sourceWidth, uint sourceHeight, nint destinationTexture, uint destinationWidth, uint destinationHeight)
+        public override void BlitTexture(nint commandBuffer, nint sourceTexture, uint sourceWidth, uint sourceHeight, nint destinationTexture, uint destinationWidth, uint destinationHeight)
         {
             PresentThreadIds.Enqueue(Environment.CurrentManagedThreadId);
             lock (sync)
@@ -798,42 +688,10 @@ public sealed class GameHostTests : IDisposable
             }
         }
 
-        public bool QueryFence(nint device, nint fence) => true;
-        public bool WaitForFences(nint device, ReadOnlySpan<nint> fences) => true;
-        public void ReleaseFence(nint device, nint fence) { }
-
-        public bool WaitForIdle(nint device)
+        public override bool WaitForIdle(nint device)
         {
             sharedEvents?.Enqueue("WaitForIdle");
             return true;
-        }
-    }
-
-    private sealed class CapturingProvider : ILoggerProvider
-    {
-        public ConcurrentQueue<(string Category, LogLevel Level, string Message)> Entries { get; } = new();
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this, categoryName);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(CapturingProvider owner, string categoryName) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                owner.Entries.Enqueue((categoryName, logLevel, formatter(state, exception)));
-            }
         }
     }
 }

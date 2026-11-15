@@ -1,6 +1,7 @@
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
+using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace kajarlabs.Framework.Tests.Graphics.Rendering;
@@ -181,10 +182,15 @@ public sealed class GpuTextureTests
         Assert.True(backend.Events.LastIndexOf("ReleaseTexture") < backend.Events.IndexOf("DestroyDevice"));
     }
 
-    private sealed class TextureRecordingBackend : IGpuBackend
+    private sealed class TextureRecordingBackend : StubGpuBackend
     {
         private readonly Dictionary<nint, byte[]> mappedBuffers = [];
-        private nint nextHandle = 0x1000;
+
+        public TextureRecordingBackend()
+        {
+            PixelWidth = 640;
+            PixelHeight = 480;
+        }
 
         public bool SignalFencesImmediately { get; set; } = true;
         public int CopyPassCount { get; private set; }
@@ -195,67 +201,40 @@ public sealed class GpuTextureTests
         public List<nint> ReleasedFences { get; } = [];
         public List<(GpuTextureRegion Destination, bool CycleTexture, byte[] PixelBytes)> Uploads { get; } = [];
 
-        public GpuTextureFormat Rgba8TextureFormat => new(12);
-        public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver) => ++nextHandle;
+        public override void DestroyDevice(nint device) => Events.Add(nameof(DestroyDevice));
 
-        public void DestroyDevice(nint device) => Events.Add(nameof(DestroyDevice));
-
-        public string? GetDeviceDriver(nint device) => "vulkan";
-        public GpuShaderFormats GetSupportedShaderFormats(nint device) => GpuShaderFormats.SpirV;
-        public bool ClaimWindow(nint device, nint windowHandle) => true;
-        public void ReleaseWindow(nint device, nint windowHandle) { }
-        public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => true;
-        public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => true;
-        public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => true;
-        public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => new(12);
-        public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => swapchainFormat;
-
-        public bool GetWindowPixelSize(nint windowHandle, out int width, out int height)
-        {
-            width = 640;
-            height = 480;
-            return true;
-        }
-
-        public bool IsWindowMinimized(nint windowHandle) => false;
-
-        public nint CreateTexture(nint device, in GpuTextureDescription description) => ++nextHandle;
-
-        public void ReleaseTexture(nint device, nint texture)
+        public override void ReleaseTexture(nint device, nint texture)
         {
             ReleasedTextures.Add(texture);
             Events.Add(nameof(ReleaseTexture));
         }
 
-        public nint CreateSampler(nint device, TextureSamplerParameters parameters) => ++nextHandle;
-        public void ReleaseSampler(nint device, nint sampler) => Events.Add(nameof(ReleaseSampler));
+        public override void ReleaseSampler(nint device, nint sampler) => Events.Add(nameof(ReleaseSampler));
 
-        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
+        public override nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
         {
-            var handle = ++nextHandle;
+            var handle = NextHandle();
             mappedBuffers[handle] = new byte[sizeInBytes];
             return handle;
         }
 
-        public void ReleaseTransferBuffer(nint device, nint transferBuffer)
+        public override void ReleaseTransferBuffer(nint device, nint transferBuffer)
             => mappedBuffers.Remove(transferBuffer);
 
-        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle) => transferBuffer;
+        public override nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle) => transferBuffer;
 
-        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
+        public override void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
             => Buffer.BlockCopy(source, sourceOffset, mappedBuffers[mappedDestination], byteOffset, byteCount);
 
-        public void UnmapTransferBuffer(nint device, nint transferBuffer) { }
-
-        public nint BeginCopyPass(nint commandBuffer)
+        public override nint BeginCopyPass(nint commandBuffer)
         {
             CopyPassCount++;
             CopyPassEvents.Add(nameof(BeginCopyPass));
             Events.Add(nameof(BeginCopyPass));
-            return ++nextHandle;
+            return NextHandle();
         }
 
-        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
+        public override void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
         {
             var byteCount = (int)(destination.Width * destination.Height * 4);
             var copy = new byte[byteCount];
@@ -263,43 +242,27 @@ public sealed class GpuTextureTests
             Uploads.Add((destination, cycle, copy));
         }
 
-        public void EndCopyPass(nint copyPass) => Events.Add(nameof(EndCopyPass));
+        public override void EndCopyPass(nint copyPass) => Events.Add(nameof(EndCopyPass));
 
-        public nint CreateShader(nint device, in GpuShaderCreateDescription description) => ++nextHandle;
-        public void ReleaseShader(nint device, nint shader) { }
-        public nint CreateGraphicsPipeline(nint device, in GpuGraphicsPipelineDescription description) => ++nextHandle;
-        public void ReleaseGraphicsPipeline(nint device, nint pipeline) { }
-        public nint AcquireCommandBuffer(nint device) => ++nextHandle;
-        public bool SubmitCommandBuffer(nint commandBuffer) => true;
-
-        public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
+        public override nint SubmitCommandBufferAndAcquireFence(nint commandBuffer)
         {
-            var fence = ++nextHandle;
+            var fence = NextHandle();
             AcquiredDrawFences.Add(fence);
             return fence;
         }
 
-        public bool CancelCommandBuffer(nint commandBuffer) => true;
-        public void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
+        public override void ClearColorTarget(nint commandBuffer, nint colorTargetTexture, Color4 clearColor)
             => Events.Add(nameof(ClearColorTarget));
-        public bool AcquireSwapchainTexture(nint commandBuffer, nint windowHandle, out nint swapchainTexture, out uint width, out uint height)
-        {
-            swapchainTexture = ++nextHandle;
-            width = 640;
-            height = 480;
-            return true;
-        }
-        public void BlitTexture(nint commandBuffer, nint sourceTexture, uint sourceWidth, uint sourceHeight, nint destinationTexture, uint destinationWidth, uint destinationHeight) { }
-        public bool QueryFence(nint device, nint fence) => SignalFencesImmediately;
-        public bool WaitForFences(nint device, ReadOnlySpan<nint> fences) => true;
 
-        public void ReleaseFence(nint device, nint fence)
+        public override bool QueryFence(nint device, nint fence) => SignalFencesImmediately;
+
+        public override void ReleaseFence(nint device, nint fence)
         {
             ReleasedFences.Add(fence);
             Events.Add(nameof(ReleaseFence));
         }
 
-        public bool WaitForIdle(nint device)
+        public override bool WaitForIdle(nint device)
         {
             Events.Add(nameof(WaitForIdle));
             return true;

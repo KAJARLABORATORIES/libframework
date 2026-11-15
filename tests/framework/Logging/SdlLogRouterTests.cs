@@ -1,4 +1,5 @@
 using kajarlabs.Framework.Logging;
+using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging;
 using SDL3;
 
@@ -24,7 +25,7 @@ public sealed class SdlLogRouterTests
     public void RoutesSdlLogCallsToHostLoggerAndRestoresPreviousHandlerOnDispose()
     {
         using var factory = new FrameworkLoggerFactory();
-        using var provider = new CapturingProvider();
+        using var provider = new CapturingLoggerProvider();
         factory.AddProvider(provider);
 
         using (var router = new SdlLogRouter(factory))
@@ -38,38 +39,11 @@ public sealed class SdlLogRouterTests
         // After disposal, SDL logs must no longer reach the router's logger.
         SDL.LogInfo(SDL.LogCategory.Application, "after dispose");
 
-        Assert.Equal(3, provider.Entries.Count);
+        var entries = provider.Entries.ToArray();
+        Assert.Equal(3, entries.Length);
 
-        Assert.Equal(("SDL.Application", LogLevel.Information, "sdl info test"), provider.Entries[0]);
-        Assert.Equal(("SDL.Application", LogLevel.Warning, "sdl warn test"), provider.Entries[1]);
-        Assert.Equal(("SDL.Application", LogLevel.Error, "sdl error test"), provider.Entries[2]);
-    }
-
-    private sealed class CapturingProvider : ILoggerProvider
-    {
-        public List<(string Category, LogLevel Level, string Message)> Entries { get; } = [];
-
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this, categoryName);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class CapturingLogger(CapturingProvider owner, string categoryName) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter)
-            {
-                owner.Entries.Add((categoryName, logLevel, formatter(state, exception)));
-            }
-        }
+        Assert.Equal(("SDL.Application", LogLevel.Information, "sdl info test"), entries[0]);
+        Assert.Equal(("SDL.Application", LogLevel.Warning, "sdl warn test"), entries[1]);
+        Assert.Equal(("SDL.Application", LogLevel.Error, "sdl error test"), entries[2]);
     }
 }
