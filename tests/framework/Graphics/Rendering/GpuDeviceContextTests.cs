@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Numerics;
 using Microsoft.Extensions.Logging;
@@ -518,6 +519,8 @@ public sealed class GpuDeviceContextTests
             }
         }
 
+        public GpuTextureFormat Rgba8TextureFormat => new(12);
+
         public void ReleaseTexture(nint device, nint texture)
         {
             lock (sync)
@@ -526,6 +529,54 @@ public sealed class GpuDeviceContextTests
                 activeTextures.Remove(texture);
                 ReleasedTextures.Add(texture);
             }
+        }
+
+        public nint CreateSampler(nint device, TextureSamplerParameters parameters)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseSampler(nint device, nint sampler)
+        {
+        }
+
+        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseTransferBuffer(nint device, nint transferBuffer)
+        {
+        }
+
+        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
+        {
+        }
+
+        public void UnmapTransferBuffer(nint device, nint transferBuffer)
+        {
+        }
+
+        public nint BeginCopyPass(nint commandBuffer)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
+        {
+        }
+
+        public void EndCopyPass(nint copyPass)
+        {
         }
 
         public nint CreateShader(nint device, in GpuShaderCreateDescription description)

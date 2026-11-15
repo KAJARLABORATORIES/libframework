@@ -116,6 +116,13 @@ using (var headlessHost = new HeadlessGameHost())
 
     if (headlessGame.Updates != 3 || headlessHost.Window is not null || headlessGame.Draws == 0 || headlessHost.Renderer.Viewport.Width <= 0)
         throw new InvalidOperationException("HeadlessGameHost failed bounded execution or renderer verification under NativeAOT.");
+
+    using var smokeTex = headlessHost.Renderer.CreateTexture(2, 2);
+    smokeTex.SetData(new byte[2 * 2 * 4]);
+    var white = headlessHost.Renderer.WhitePixel;
+
+    if (white.Width != 1 || white.Height != 1 || TextureSamplerParameters.LINEAR_CLAMP.Filtering != TextureFilteringMode.Linear)
+        throw new InvalidOperationException("Texture or sampler API check failed under NativeAOT.");
 }
 
 var viewport = new Viewport(new RectangleI(0, 0, 1280, 720));

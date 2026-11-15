@@ -26,6 +26,8 @@ internal interface IGpuBackend
         GpuSwapchainComposition composition,
         GpuPresentMode presentMode);
 
+    GpuTextureFormat Rgba8TextureFormat { get; }
+
     GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle);
 
     GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat);
@@ -37,6 +39,30 @@ internal interface IGpuBackend
     nint CreateTexture(nint device, in GpuTextureDescription description);
 
     void ReleaseTexture(nint device, nint texture);
+
+    nint CreateSampler(nint device, TextureSamplerParameters parameters);
+
+    void ReleaseSampler(nint device, nint sampler);
+
+    nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes);
+
+    void ReleaseTransferBuffer(nint device, nint transferBuffer);
+
+    nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle);
+
+    void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount);
+
+    void UnmapTransferBuffer(nint device, nint transferBuffer);
+
+    nint BeginCopyPass(nint commandBuffer);
+
+    void UploadToTexture(
+        nint copyPass,
+        in GpuTextureUploadSource source,
+        in GpuTextureRegion destination,
+        bool cycle);
+
+    void EndCopyPass(nint copyPass);
 
     nint CreateShader(nint device, in GpuShaderCreateDescription description);
 

@@ -5,12 +5,14 @@ namespace kajarlabs.Framework.Graphics.Rendering;
 internal sealed class NullRenderer : IHostRenderer
 {
     private readonly Lock stateLock = new();
+    private readonly NullTexture whitePixel = new(1, 1, allowUserDispose: false);
     private long completedFrames;
     private int resizeCount;
 
     public NullRenderer(int initialWidth = 0, int initialHeight = 0)
     {
         Viewport = new Viewport(Math.Max(0, initialWidth), Math.Max(0, initialHeight));
+        whitePixel.SetData([255, 255, 255, 255]);
     }
 
     public Viewport Viewport
@@ -38,6 +40,14 @@ internal sealed class NullRenderer : IHostRenderer
     internal long CompletedFrames => Volatile.Read(ref completedFrames);
 
     internal int ResizeCount => Volatile.Read(ref resizeCount);
+
+    public ITexture WhitePixel => whitePixel;
+
+    public ITexture CreateTexture(int width, int height)
+    {
+        TextureValidation.ValidateDimensions(width, height);
+        return new NullTexture(width, height);
+    }
 
     public void Initialize(nint windowHandle)
     {
@@ -87,5 +97,40 @@ internal sealed class NullRenderer : IHostRenderer
 
     public void Dispose()
     {
+        whitePixel.ForceDispose();
+    }
+
+    private sealed class NullTexture : ITexture
+    {
+        private readonly bool allowUserDispose;
+        private int disposed;
+
+        public NullTexture(int width, int height, bool allowUserDispose = true)
+        {
+            Width = width;
+            Height = height;
+            this.allowUserDispose = allowUserDispose;
+        }
+
+        public int Width { get; }
+
+        public int Height { get; }
+
+        public void SetData(ReadOnlySpan<byte> rgba8Pixels)
+            => SetData(new RectangleI(0, 0, Width, Height), rgba8Pixels);
+
+        public void SetData(RectangleI region, ReadOnlySpan<byte> rgba8Pixels)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            TextureValidation.ValidateUpload(Width, Height, region, rgba8Pixels.Length);
+        }
+
+        public void Dispose()
+        {
+            if (allowUserDispose)
+                Interlocked.Exchange(ref disposed, 1);
+        }
+
+        internal void ForceDispose() => Interlocked.Exchange(ref disposed, 1);
     }
 }

@@ -116,9 +116,20 @@ public sealed class SdlGpuRendererTests
         using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
 
         Assert.Null(renderer.PipelineCache);
+        Assert.Null(renderer.SamplerCache);
+        Assert.Null(renderer.TextureManager);
 
         renderer.Initialize(fake_window);
         Assert.NotNull(renderer.PipelineCache);
+        Assert.NotNull(renderer.SamplerCache);
+        Assert.NotNull(renderer.TextureManager);
+
+        var samplerHandle = renderer.GetOrCreateSampler(TextureSamplerParameters.LINEAR_CLAMP);
+        Assert.NotEqual(nint.Zero, samplerHandle);
+        Assert.Equal(samplerHandle, renderer.GetOrCreateSampler(TextureSamplerParameters.LINEAR_CLAMP));
+
+        using var customTexture = renderer.CreateTexture(4, 4);
+        customTexture.Dispose();
 
         var keyAlpha = new GpuGraphicsPipelineKey(
             BuiltInShaders.SPRITE_2D_VERTEX,
@@ -149,13 +160,19 @@ public sealed class SdlGpuRendererTests
         renderer.Dispose();
 
         Assert.Null(renderer.PipelineCache);
+        Assert.Null(renderer.SamplerCache);
+        Assert.Null(renderer.TextureManager);
         Assert.Equal(backend.CreatedPipelines, backend.ReleasedPipelines);
         Assert.Equal(backend.CreatedShaders, backend.ReleasedShaders);
+        Assert.Equal(backend.CreatedSamplers, backend.ReleasedSamplers);
+        Assert.Equal(backend.CreatedTextures, backend.ReleasedTextures);
 
         var destroyIndex = backend.LifecycleEvents.IndexOf("DestroyDevice");
         Assert.True(destroyIndex > 0);
         Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseGraphicsPipeline") < destroyIndex);
         Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseShader") < destroyIndex);
+        Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseSampler") < destroyIndex);
+        Assert.True(backend.LifecycleEvents.LastIndexOf("ReleaseTexture") < destroyIndex);
     }
 
     private sealed class FakeGpuBackend : IGpuBackend
@@ -172,6 +189,10 @@ public sealed class SdlGpuRendererTests
         public List<nint> ReleasedShaders { get; } = [];
         public List<nint> CreatedPipelines { get; } = [];
         public List<nint> ReleasedPipelines { get; } = [];
+        public List<nint> CreatedSamplers { get; } = [];
+        public List<nint> ReleasedSamplers { get; } = [];
+        public List<nint> CreatedTextures { get; } = [];
+        public List<nint> ReleasedTextures { get; } = [];
         public List<string> LifecycleEvents { get; } = [];
 
         public nint CreateDevice(GpuShaderFormats shaderFormats, bool debugMode, string? preferredDriver) => ++nextHandle;
@@ -185,6 +206,7 @@ public sealed class SdlGpuRendererTests
         public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => true;
         public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => true;
         public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => true;
+        public GpuTextureFormat Rgba8TextureFormat => new(12);
         public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => new(12);
         public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => swapchainFormat;
 
@@ -196,8 +218,46 @@ public sealed class SdlGpuRendererTests
         }
 
         public bool IsWindowMinimized(nint windowHandle) => false;
-        public nint CreateTexture(nint device, in GpuTextureDescription description) => ++nextHandle;
-        public void ReleaseTexture(nint device, nint texture) { }
+
+        public nint CreateTexture(nint device, in GpuTextureDescription description)
+        {
+            var handle = ++nextHandle;
+
+            if ((description.Usage & GpuTextureUsage.ColorTarget) == 0)
+                CreatedTextures.Add(handle);
+
+            return handle;
+        }
+
+        public void ReleaseTexture(nint device, nint texture)
+        {
+            if (CreatedTextures.Contains(texture))
+                ReleasedTextures.Add(texture);
+
+            LifecycleEvents.Add(nameof(ReleaseTexture));
+        }
+
+        public nint CreateSampler(nint device, TextureSamplerParameters parameters)
+        {
+            var handle = ++nextHandle;
+            CreatedSamplers.Add(handle);
+            return handle;
+        }
+
+        public void ReleaseSampler(nint device, nint sampler)
+        {
+            ReleasedSamplers.Add(sampler);
+            LifecycleEvents.Add(nameof(ReleaseSampler));
+        }
+
+        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes) => ++nextHandle;
+        public void ReleaseTransferBuffer(nint device, nint transferBuffer) { }
+        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle) => ++nextHandle;
+        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount) { }
+        public void UnmapTransferBuffer(nint device, nint transferBuffer) { }
+        public nint BeginCopyPass(nint commandBuffer) => ++nextHandle;
+        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle) { }
+        public void EndCopyPass(nint copyPass) { }
 
         public nint CreateShader(nint device, in GpuShaderCreateDescription description)
         {

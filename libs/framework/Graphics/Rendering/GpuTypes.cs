@@ -189,3 +189,22 @@ internal readonly record struct GpuGraphicsPipelineDescription(
     BlendingParameters Blending,
     GpuPrimitiveTopology Topology,
     GpuTextureFormat ColorTargetFormat);
+
+internal enum GpuTransferBufferUsage
+{
+    Upload = 0,
+    Download = 1,
+}
+
+internal readonly record struct GpuTextureUploadSource(
+    nint TransferBuffer,
+    uint Offset,
+    uint PixelsPerRow,
+    uint RowsPerLayer);
+
+internal readonly record struct GpuTextureRegion(
+    nint Texture,
+    uint X,
+    uint Y,
+    uint Width,
+    uint Height);

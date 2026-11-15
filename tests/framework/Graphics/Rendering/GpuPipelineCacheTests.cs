@@ -159,12 +159,23 @@ public sealed class GpuPipelineCacheTests
         public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => false;
         public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => false;
         public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => false;
+        public GpuTextureFormat Rgba8TextureFormat => GpuTextureFormat.INVALID;
         public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => GpuTextureFormat.INVALID;
         public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => GpuTextureFormat.INVALID;
         public bool GetWindowPixelSize(nint windowHandle, out int width, out int height) { width = 0; height = 0; return false; }
         public bool IsWindowMinimized(nint windowHandle) => false;
         public nint CreateTexture(nint device, in GpuTextureDescription description) => 0;
         public void ReleaseTexture(nint device, nint texture) { }
+        public nint CreateSampler(nint device, TextureSamplerParameters parameters) => 0;
+        public void ReleaseSampler(nint device, nint sampler) { }
+        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes) => 0;
+        public void ReleaseTransferBuffer(nint device, nint transferBuffer) { }
+        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle) => 0;
+        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount) { }
+        public void UnmapTransferBuffer(nint device, nint transferBuffer) { }
+        public nint BeginCopyPass(nint commandBuffer) => 0;
+        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle) { }
+        public void EndCopyPass(nint copyPass) { }
         public nint AcquireCommandBuffer(nint device) => 0;
         public bool SubmitCommandBuffer(nint commandBuffer) => false;
         public nint SubmitCommandBufferAndAcquireFence(nint commandBuffer) => 0;

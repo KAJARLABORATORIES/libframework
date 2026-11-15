@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using kajarlabs.Framework.Numerics;
 using SDL3;
 
@@ -51,6 +52,8 @@ internal sealed class SdlGpuBackend : IGpuBackend
             toSdlSwapchainComposition(composition),
             toSdlPresentMode(presentMode));
 
+    public GpuTextureFormat Rgba8TextureFormat => new((uint)SDL.GPUTextureFormat.R8G8B8A8Unorm);
+
     public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle)
         => new((uint)SDL.GetGPUSwapchainTextureFormat(device, windowHandle));
 
@@ -95,6 +98,107 @@ internal sealed class SdlGpuBackend : IGpuBackend
     {
         if (device != nint.Zero && texture != nint.Zero)
             SDL.ReleaseGPUTexture(device, texture);
+    }
+
+    public nint CreateSampler(nint device, TextureSamplerParameters parameters)
+    {
+        var filter = toSdlFilter(parameters.Filtering);
+        var mipmapMode = toSdlMipmapMode(parameters.Filtering);
+        var addressMode = toSdlAddressMode(parameters.WrapMode);
+
+        var createInfo = new SDL.GPUSamplerCreateInfo
+        {
+            MinFilter = filter,
+            MagFilter = filter,
+            MipmapMode = mipmapMode,
+            AddressModeU = addressMode,
+            AddressModeV = addressMode,
+            AddressModeW = addressMode,
+            MinLod = 0f,
+            MaxLod = 1000f,
+            EnableAnisotropy = false,
+            EnableCompare = false,
+        };
+
+        return SDL.CreateGPUSampler(device, in createInfo);
+    }
+
+    public void ReleaseSampler(nint device, nint sampler)
+    {
+        if (device != nint.Zero && sampler != nint.Zero)
+            SDL.ReleaseGPUSampler(device, sampler);
+    }
+
+    public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
+    {
+        var createInfo = new SDL.GPUTransferBufferCreateInfo
+        {
+            Usage = toSdlTransferBufferUsage(usage),
+            Size = sizeInBytes,
+        };
+
+        return SDL.CreateGPUTransferBuffer(device, in createInfo);
+    }
+
+    public void ReleaseTransferBuffer(nint device, nint transferBuffer)
+    {
+        if (device != nint.Zero && transferBuffer != nint.Zero)
+            SDL.ReleaseGPUTransferBuffer(device, transferBuffer);
+    }
+
+    public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle)
+        => SDL.MapGPUTransferBuffer(device, transferBuffer, cycle);
+
+    public void CopyToMappedBuffer(
+        nint mappedDestination,
+        int byteOffset,
+        byte[] source,
+        int sourceOffset,
+        int byteCount)
+        => Marshal.Copy(source, sourceOffset, mappedDestination + byteOffset, byteCount);
+
+    public void UnmapTransferBuffer(nint device, nint transferBuffer)
+    {
+        if (device != nint.Zero && transferBuffer != nint.Zero)
+            SDL.UnmapGPUTransferBuffer(device, transferBuffer);
+    }
+
+    public nint BeginCopyPass(nint commandBuffer) => SDL.BeginGPUCopyPass(commandBuffer);
+
+    public void UploadToTexture(
+        nint copyPass,
+        in GpuTextureUploadSource source,
+        in GpuTextureRegion destination,
+        bool cycle)
+    {
+        var transferInfo = new SDL.GPUTextureTransferInfo
+        {
+            TransferBuffer = source.TransferBuffer,
+            Offset = source.Offset,
+            PixelsPerRow = source.PixelsPerRow,
+            RowsPerLayer = source.RowsPerLayer,
+        };
+
+        var region = new SDL.GPUTextureRegion
+        {
+            Texture = destination.Texture,
+            MipLevel = 0,
+            Layer = 0,
+            X = destination.X,
+            Y = destination.Y,
+            Z = 0,
+            W = destination.Width,
+            H = destination.Height,
+            D = 1,
+        };
+
+        SDL.UploadToGPUTexture(copyPass, in transferInfo, in region, cycle);
+    }
+
+    public void EndCopyPass(nint copyPass)
+    {
+        if (copyPass != nint.Zero)
+            SDL.EndGPUCopyPass(copyPass);
     }
 
     public nint CreateShader(nint device, in GpuShaderCreateDescription description)
@@ -435,5 +539,37 @@ internal sealed class SdlGpuBackend : IGpuBackend
             BlendOperation.Min => SDL.GPUBlendOp.Min,
             BlendOperation.Max => SDL.GPUBlendOp.Max,
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
+        };
+
+    private static SDL.GPUFilter toSdlFilter(TextureFilteringMode filtering)
+        => filtering switch
+        {
+            TextureFilteringMode.Linear => SDL.GPUFilter.Linear,
+            TextureFilteringMode.Nearest => SDL.GPUFilter.Nearest,
+            _ => throw new ArgumentOutOfRangeException(nameof(filtering), filtering, null),
+        };
+
+    private static SDL.GPUSamplerMipmapMode toSdlMipmapMode(TextureFilteringMode filtering)
+        => filtering switch
+        {
+            TextureFilteringMode.Linear => SDL.GPUSamplerMipmapMode.Linear,
+            TextureFilteringMode.Nearest => SDL.GPUSamplerMipmapMode.Nearest,
+            _ => throw new ArgumentOutOfRangeException(nameof(filtering), filtering, null),
+        };
+
+    private static SDL.GPUSamplerAddressMode toSdlAddressMode(TextureWrapMode wrapMode)
+        => wrapMode switch
+        {
+            TextureWrapMode.ClampToEdge => SDL.GPUSamplerAddressMode.ClampToEdge,
+            TextureWrapMode.Repeat => SDL.GPUSamplerAddressMode.Repeat,
+            _ => throw new ArgumentOutOfRangeException(nameof(wrapMode), wrapMode, null),
+        };
+
+    private static SDL.GPUTransferBufferUsage toSdlTransferBufferUsage(GpuTransferBufferUsage usage)
+        => usage switch
+        {
+            GpuTransferBufferUsage.Upload => SDL.GPUTransferBufferUsage.Upload,
+            GpuTransferBufferUsage.Download => SDL.GPUTransferBufferUsage.Download,
+            _ => throw new ArgumentOutOfRangeException(nameof(usage), usage, null),
         };
 }
