@@ -101,6 +101,57 @@ public sealed class GpuQuadBatcherTests
     }
 
     [Fact]
+    public void DrawTransformedQuadsPacksArbitraryCornersAndMergesIntoSingleBatch()
+    {
+        var backend = new BatcherRecordingBackend
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+        using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
+        renderer.Initialize(new nint(0x2000));
+
+        var quadA = new Quad(
+            new Vector2(10f, 20f),
+            new Vector2(60f, 35f),
+            new Vector2(45f, 90f),
+            new Vector2(-5f, 75f));
+        var uvsA = new RectangleF(0.1f, 0.2f, 0.5f, 0.25f);
+
+        var quadB = new Quad(0f, 0f, 40f, 20f)
+            * Matrix3x2Extensions.CreateLocalTransform(
+                new Vector2(200f, 150f),
+                new Vector2(2f, 1f),
+                Vector2.Zero,
+                45f,
+                new Vector2(20f, 10f));
+
+        renderer.BeginFrame();
+        renderer.DrawQuad(renderer.WhitePixel, quadA, uvsA, Color4.CYAN);
+        renderer.DrawQuad(renderer.WhitePixel, quadB, Color4.YELLOW);
+        renderer.DrawQuad(renderer.WhitePixel, new RectangleF(300f, 100f, 20f, 10f), Color4.WHITE);
+        renderer.EndFrame();
+
+        Assert.Equal(1, renderer.LastFrameDrawCallCount);
+        Assert.Equal(3, renderer.LastFrameQuadCount);
+        Assert.Single(backend.DrawCalls);
+        Assert.Equal(18u, backend.DrawCalls[0].NumIndices);
+
+        var verts = backend.VertexUploads[0].Vertices;
+        Assert.Equal(12, verts.Length);
+
+        Assert.Equal(new TexturedVertex2D(quadA.TopLeft, new Vector2(0.1f, 0.2f), Color4.CYAN), verts[0]);
+        Assert.Equal(new TexturedVertex2D(quadA.TopRight, new Vector2(0.6f, 0.2f), Color4.CYAN), verts[1]);
+        Assert.Equal(new TexturedVertex2D(quadA.BottomRight, new Vector2(0.6f, 0.45f), Color4.CYAN), verts[2]);
+        Assert.Equal(new TexturedVertex2D(quadA.BottomLeft, new Vector2(0.1f, 0.45f), Color4.CYAN), verts[3]);
+
+        Assert.Equal(new TexturedVertex2D(quadB.TopLeft, new Vector2(0f, 0f), Color4.YELLOW), verts[4]);
+        Assert.Equal(new TexturedVertex2D(quadB.TopRight, new Vector2(1f, 0f), Color4.YELLOW), verts[5]);
+        Assert.Equal(new TexturedVertex2D(quadB.BottomRight, new Vector2(1f, 1f), Color4.YELLOW), verts[6]);
+        Assert.Equal(new TexturedVertex2D(quadB.BottomLeft, new Vector2(0f, 1f), Color4.YELLOW), verts[7]);
+    }
+
+    [Fact]
     public void AutomaticFlushingSplitsAcrossCapacityAndStateChangesWithBufferCycling()
     {
         var backend = new BatcherRecordingBackend

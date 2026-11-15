@@ -125,7 +125,7 @@ using (var headlessHost = new HeadlessGameHost())
     if (white.Width != 1 || white.Height != 1 || TextureSamplerParameters.LINEAR_CLAMP.Filtering != TextureFilteringMode.Linear)
         throw new InvalidOperationException("Texture or sampler API check failed under NativeAOT.");
 
-    if (headlessHost.Renderer.LastFrameDrawCallCount == 0 || headlessHost.Renderer.LastFrameQuadCount < 2)
+    if (headlessHost.Renderer.LastFrameDrawCallCount == 0 || headlessHost.Renderer.LastFrameQuadCount < 3)
         throw new InvalidOperationException("Renderer quad batch telemetry check failed under NativeAOT.");
 }
 
@@ -199,6 +199,7 @@ internal sealed class HeadlessSmokeGame : Game
         Renderer.SetProjection(GraphicsMath.CreateOrthographicProjection(Renderer.Viewport));
         Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(10f, 10f, 32f, 32f), Color4.WHITE);
         Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(50f, 10f, 16f, 16f), new RectangleF(0f, 0f, 0.5f, 0.5f), Color4.RED);
+        Renderer.DrawQuad(Renderer.WhitePixel, new Quad(70f, 10f, 16f, 16f) * Matrix3x2.CreateRotation(0.25f), Color4.GREEN);
         Renderer.SetScissor(null);
         Renderer.SetProjection(null);
         drawObserved.Set();

@@ -205,6 +205,9 @@ internal sealed class GpuQuadBatcher : IDisposable
     }
 
     public void DrawQuad(ITexture texture, RectangleF destination, RectangleF textureCoords, Color4 color)
+        => DrawQuad(texture, Quad.FromRectangle(destination), textureCoords, color);
+
+    public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
     {
         ArgumentNullException.ThrowIfNull(texture);
 
@@ -227,10 +230,10 @@ internal sealed class GpuQuadBatcher : IDisposable
         var vertices = MemoryMarshal.Cast<byte, TexturedVertex2D>(vertexStagingBytes);
         var baseVertex = QueuedQuadCount * 4;
 
-        vertices[baseVertex + 0] = new TexturedVertex2D(destination.Left, destination.Top, textureCoords.Left, textureCoords.Top, color);
-        vertices[baseVertex + 1] = new TexturedVertex2D(destination.Right, destination.Top, textureCoords.Right, textureCoords.Top, color);
-        vertices[baseVertex + 2] = new TexturedVertex2D(destination.Right, destination.Bottom, textureCoords.Right, textureCoords.Bottom, color);
-        vertices[baseVertex + 3] = new TexturedVertex2D(destination.Left, destination.Bottom, textureCoords.Left, textureCoords.Bottom, color);
+        vertices[baseVertex + 0] = new TexturedVertex2D(destination.TopLeft, new Vector2(textureCoords.Left, textureCoords.Top), color);
+        vertices[baseVertex + 1] = new TexturedVertex2D(destination.TopRight, new Vector2(textureCoords.Right, textureCoords.Top), color);
+        vertices[baseVertex + 2] = new TexturedVertex2D(destination.BottomRight, new Vector2(textureCoords.Right, textureCoords.Bottom), color);
+        vertices[baseVertex + 3] = new TexturedVertex2D(destination.BottomLeft, new Vector2(textureCoords.Left, textureCoords.Bottom), color);
 
         QueuedQuadCount++;
     }
