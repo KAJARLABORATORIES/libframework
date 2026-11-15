@@ -667,6 +667,7 @@ public sealed class GameHostTests : IDisposable
         public bool WindowSupportsSwapchainComposition(nint device, nint windowHandle, GpuSwapchainComposition composition) => true;
         public bool WindowSupportsPresentMode(nint device, nint windowHandle, GpuPresentMode presentMode) => true;
         public bool SetSwapchainParameters(nint device, nint windowHandle, GpuSwapchainComposition composition, GpuPresentMode presentMode) => true;
+        public GpuTextureFormat Rgba8TextureFormat => new(12);
         public GpuTextureFormat GetSwapchainTextureFormat(nint device, nint windowHandle) => new(12);
         public GpuTextureFormat ResolveOffscreenColorFormat(nint device, GpuTextureFormat swapchainFormat) => swapchainFormat;
 
@@ -686,6 +687,50 @@ public sealed class GameHostTests : IDisposable
         }
 
         public void ReleaseTexture(nint device, nint texture) => sharedEvents?.Enqueue("ReleaseTexture");
+
+        public nint CreateSampler(nint device, TextureSamplerParameters parameters)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseSampler(nint device, nint sampler) => sharedEvents?.Enqueue("ReleaseSampler");
+
+        public nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void ReleaseTransferBuffer(nint device, nint transferBuffer) => sharedEvents?.Enqueue("ReleaseTransferBuffer");
+
+        public nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
+        {
+        }
+
+        public void UnmapTransferBuffer(nint device, nint transferBuffer)
+        {
+        }
+
+        public nint BeginCopyPass(nint commandBuffer)
+        {
+            lock (sync)
+                return ++nextHandle;
+        }
+
+        public void UploadToTexture(nint copyPass, in GpuTextureUploadSource source, in GpuTextureRegion destination, bool cycle)
+        {
+        }
+
+        public void EndCopyPass(nint copyPass)
+        {
+        }
 
         public nint CreateShader(nint device, in GpuShaderCreateDescription description)
         {

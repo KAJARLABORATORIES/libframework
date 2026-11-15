@@ -14,6 +14,18 @@ public interface IRenderer
     Viewport Viewport { get; }
 
     /// <summary>
+    /// Gets the built-in 1x1 opaque white texture used for solid or tinted untextured primitives.
+    /// </summary>
+    ITexture WhitePixel { get; }
+
+    /// <summary>
+    /// Creates a 2D RGBA8 texture with the specified pixel dimensions.
+    /// </summary>
+    /// <param name="width">The texture width in pixels (must be positive).</param>
+    /// <param name="height">The texture height in pixels (must be positive).</param>
+    ITexture CreateTexture(int width, int height);
+
+    /// <summary>
     /// Clears the current frame color target to the specified <paramref name="color"/>.
     /// </summary>
     /// <param name="color">The RGBA clear color.</param>

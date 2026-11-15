@@ -328,11 +328,23 @@ internal sealed partial class GpuDeviceContext : IDisposable
     /// Submits the draw command buffer and publishes the completed offscreen frame for <c>InputThread</c>.
     /// </summary>
     public void EndOffscreenFrame(in GpuOffscreenFrame frame)
+        => EndOffscreenFrame(in frame, acquireFence: false, out _);
+
+    /// <summary>
+    /// Submits the draw command buffer (optionally acquiring a completion fence) and publishes
+    /// the completed offscreen frame for <c>InputThread</c>.
+    /// </summary>
+    public void EndOffscreenFrame(in GpuOffscreenFrame frame, bool acquireFence, out nint submittedFence)
     {
+        submittedFence = nint.Zero;
+
         if (frame.CommandBuffer == nint.Zero)
             throw new ArgumentException("Frame command buffer must not be zero.", nameof(frame));
 
-        backend.SubmitCommandBuffer(frame.CommandBuffer);
+        if (acquireFence)
+            submittedFence = backend.SubmitCommandBufferAndAcquireFence(frame.CommandBuffer);
+        else
+            backend.SubmitCommandBuffer(frame.CommandBuffer);
 
         lock (stateLock)
         {
@@ -476,6 +488,22 @@ internal sealed partial class GpuDeviceContext : IDisposable
         }
 
         return true;
+    }
+
+    public void WaitForIdle()
+    {
+        nint currentDevice;
+
+        lock (stateLock)
+        {
+            if (lifecycleState != GpuDeviceLifecycleState.Initialized)
+                return;
+
+            currentDevice = device;
+        }
+
+        if (currentDevice != nint.Zero)
+            backend.WaitForIdle(currentDevice);
     }
 
     /// <summary>
