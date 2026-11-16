@@ -402,10 +402,7 @@ public class Drawable : IDisposable
         {
             if (!validCaches.HasFlag(CacheFlags.DrawSize))
             {
-                var availableSize = getAvailableParentRectangle().Size;
-                cachedDrawSize = new Vector2(
-                    RelativeSizeAxes.HasFlag(Axes.X) ? size.X * availableSize.X : size.X,
-                    RelativeSizeAxes.HasFlag(Axes.Y) ? size.Y * availableSize.Y : size.Y);
+                cachedDrawSize = ComputeDrawSize();
                 validCaches |= CacheFlags.DrawSize;
             }
 
@@ -652,6 +649,8 @@ public class Drawable : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    internal long ChildID { get; set; }
+
     internal void SetParent(Drawable? newParent)
     {
         if (newParent is not null)
@@ -669,6 +668,18 @@ public class Drawable : IDisposable
             UpdateClock(newParent?.Clock);
 
         Invalidate(Invalidation.All, InvalidationSource.Parent);
+    }
+
+    /// <summary>
+    /// Computes the resolved local size in parent units. Subclasses such as <see cref="CompositeDrawable"/>
+    /// override this to incorporate <c>AutoSizeAxes</c>.
+    /// </summary>
+    protected virtual Vector2 ComputeDrawSize()
+    {
+        var availableSize = getAvailableParentRectangle().Size;
+        return new Vector2(
+            RelativeSizeAxes.HasFlag(Axes.X) ? size.X * availableSize.X : size.X,
+            RelativeSizeAxes.HasFlag(Axes.Y) ? size.Y * availableSize.Y : size.Y);
     }
 
     /// <summary>
@@ -746,7 +757,7 @@ public class Drawable : IDisposable
     {
         var flags = CacheFlags.None;
 
-        if ((invalidation & Invalidation.Geometry) != Invalidation.None)
+        if ((invalidation & (Invalidation.Geometry | Invalidation.MiscGeometry)) != Invalidation.None)
             flags |= CacheFlags.DrawSize | CacheFlags.OriginPosition | CacheFlags.LocalTransform | CacheFlags.DrawInfo | CacheFlags.ScreenSpaceDrawQuad;
 
         if ((invalidation & Invalidation.Layout) != Invalidation.None)
