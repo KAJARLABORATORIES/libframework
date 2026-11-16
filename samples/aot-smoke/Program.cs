@@ -150,6 +150,27 @@ if (!transformedQuad.Contains(5f, 25f)
     throw new InvalidOperationException("Scene geometry primitives check failed under NativeAOT.");
 }
 
+using (var smokeDrawable = new Drawable
+{
+    Position = new Vector2(50f, 40f),
+    Size = new Vector2(80f, 30f),
+    Origin = Anchor.Centre,
+    Rotation = 45f,
+    Color = Color4.CYAN,
+    Alpha = 0.5f,
+})
+{
+    smokeDrawable.Clock = new FramedClock(new StopwatchClock(start: true));
+    var screenCenter = smokeDrawable.ToScreenSpace(new Vector2(40f, 15f));
+
+    if (!smokeDrawable.Contains(screenCenter)
+        || !smokeDrawable.UpdateSubTree()
+        || smokeDrawable.DrawColorInfo.Color.A <= 0f)
+    {
+        throw new InvalidOperationException("Drawable scene base check failed under NativeAOT.");
+    }
+}
+
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
 
