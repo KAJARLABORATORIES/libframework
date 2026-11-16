@@ -417,9 +417,49 @@ public class CompositeDrawable : Drawable
             internalChildren[i].Invalidate(childInvalidation, InvalidationSource.Parent);
     }
 
+    internal override DrawNode? GenerateDrawNodeSubtree(int treeIndex, RectangleI? parentScissor = null)
+    {
+        if (base.GenerateDrawNodeSubtree(treeIndex, parentScissor) is not CompositeDrawNode compositeNode)
+            return null;
+
+        var effectiveScissor = ComputeEffectiveScissor(parentScissor);
+
+        if (compositeNode.SyncedSubTreeInvalidationID == SubTreeInvalidationID
+            && compositeNode.HasSyncedParentScissor
+            && compositeNode.SyncedParentScissor == parentScissor)
+        {
+            return compositeNode;
+        }
+
+        compositeNode.UpdateScissorState(Masking, effectiveScissor, parentScissor);
+
+        EnsureChildrenSorted();
+        var targetChildren = compositeNode.WritableChildren;
+        targetChildren.Clear();
+
+        for (var i = 0; i < internalChildren.Count; i++)
+        {
+            var childNode = internalChildren[i].GenerateDrawNodeSubtree(treeIndex, effectiveScissor);
+
+            if (childNode is not null)
+                targetChildren.Add(childNode);
+        }
+
+        compositeNode.SyncedSubTreeInvalidationID = SubTreeInvalidationID;
+        compositeNode.SyncedParentScissor = parentScissor;
+        compositeNode.HasSyncedParentScissor = true;
+        return compositeNode;
+    }
+
+    /// <inheritdoc />
+    protected override DrawNode? CreateDrawNode() => new CompositeDrawNode(this);
+
     /// <inheritdoc />
     protected internal override void OnChildInvalidated(Drawable child, Invalidation invalidation)
     {
+        if (invalidation.HasFlag(Invalidation.Presence) && AutoSizeAxes == Axes.None)
+            Invalidate(Invalidation.DrawNode, InvalidationSource.Child);
+
         if (AutoSizeAxes == Axes.None)
             return;
 

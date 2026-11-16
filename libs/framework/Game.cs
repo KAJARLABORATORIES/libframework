@@ -1,6 +1,9 @@
+using System.Numerics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Platform;
+using kajarlabs.Framework.Scene;
+using kajarlabs.Framework.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace kajarlabs.Framework;
@@ -10,8 +13,14 @@ namespace kajarlabs.Framework;
 /// </summary>
 public class Game : IDisposable
 {
+    private readonly TripleBuffer<DrawNode?> drawNodeBuffer = new();
     private GameHost? host;
     private bool disposed;
+
+    /// <summary>
+    /// Gets the root scene <see cref="Container"/> updated on the update thread and rendered on the draw thread.
+    /// </summary>
+    public Container Root { get; } = new();
 
     /// <summary>
     /// Gets the <see cref="GameHost"/> running this game.
@@ -70,13 +79,34 @@ public class Game : IDisposable
             throw new InvalidOperationException("Game is already attached to another GameHost.");
 
         host = targetHost;
+        drawNodeBuffer.Clear();
     }
 
-    internal void InvokeLoad() => Load();
+    internal void InvokeLoad()
+    {
+        Root.Clock = Host.Threads.Update.Clock;
+        Root.ProcessCustomClock = false;
+        syncRootViewportSize();
+        Load();
+    }
 
-    internal void InvokeUpdate() => Update();
+    internal void InvokeUpdate()
+    {
+        syncRootViewportSize();
+        Update();
+        Root.UpdateSubTree();
 
-    internal void InvokeDraw() => Draw();
+        var rootNode = Root.GenerateDrawNodeSubtree(drawNodeBuffer.WriteIndex);
+        drawNodeBuffer.PublishWrite(rootNode);
+    }
+
+    internal void InvokeDraw()
+    {
+        Draw();
+
+        if (drawNodeBuffer.TryAcquireRead(out var rootNode) && rootNode is not null)
+            rootNode.Draw(Renderer);
+    }
 
     internal void InvokeExiting() => Exiting();
 
@@ -117,5 +147,16 @@ public class Game : IDisposable
             return;
 
         disposed = true;
+        Root.Dispose();
+        drawNodeBuffer.Clear();
+    }
+
+    private void syncRootViewportSize()
+    {
+        var viewport = Renderer.Viewport;
+        var targetSize = new Vector2(viewport.Width, viewport.Height);
+
+        if (Root.Size != targetSize)
+            Root.Size = targetSize;
     }
 }

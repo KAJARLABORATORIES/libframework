@@ -1,4 +1,5 @@
 using System.Numerics;
+using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Timing;
 
@@ -34,6 +35,7 @@ public class Drawable : IDisposable
 
     private IFrameBasedClock? customClock;
     private IFrameBasedClock? inheritedClock;
+    private readonly DrawNode?[] drawNodes = new DrawNode?[3];
 
     private CacheFlags validCaches;
     private Vector2 cachedDrawSize;
@@ -358,9 +360,30 @@ public class Drawable : IDisposable
     public bool IsDisposed { get; private set; }
 
     /// <summary>
+    /// Gets or sets the blending mode applied when rendering this drawable.
+    /// </summary>
+    public BlendingParameters Blending
+    {
+        get => field;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            Invalidate(Invalidation.DrawNode);
+        }
+    } = BlendingParameters.ALPHA;
+
+    /// <summary>
     /// Gets the monotonically increasing invalidation counter used to detect state changes across frames.
     /// </summary>
     public long InvalidationID { get; private set; }
+
+    /// <summary>
+    /// Gets the monotonically increasing invalidation counter covering this drawable and all descendants.
+    /// </summary>
+    public long SubTreeInvalidationID { get; private set; }
 
     /// <summary>
     /// Gets or sets the frame-based clock driving this drawable (explicitly assigned or inherited from <see cref="Parent"/>).
@@ -569,6 +592,9 @@ public class Drawable : IDisposable
         validCaches &= ~mapInvalidationToCacheFlags(invalidation);
         InvalidationID++;
 
+        for (var current = this; current is not null; current = current.Parent)
+            current.SubTreeInvalidationID++;
+
         OnInvalidate(invalidation, source);
 
         if (source == InvalidationSource.Self
@@ -651,6 +677,32 @@ public class Drawable : IDisposable
 
     internal long ChildID { get; set; }
 
+    internal virtual DrawNode? GenerateDrawNodeSubtree(int treeIndex, RectangleI? parentScissor = null)
+    {
+        if (IsDisposed || !IsPresent)
+            return null;
+
+        var node = drawNodes[treeIndex];
+
+        if (node is null)
+        {
+            node = CreateDrawNode();
+
+            if (node is null)
+                return null;
+
+            drawNodes[treeIndex] = node;
+        }
+
+        if (node.InvalidationID != InvalidationID)
+        {
+            node.ApplyState();
+            node.InvalidationID = InvalidationID;
+        }
+
+        return node;
+    }
+
     internal void SetParent(Drawable? newParent)
     {
         if (newParent is not null)
@@ -669,6 +721,12 @@ public class Drawable : IDisposable
 
         Invalidate(Invalidation.All, InvalidationSource.Parent);
     }
+
+    /// <summary>
+    /// Creates a <see cref="DrawNode"/> instance representing this drawable on the draw thread,
+    /// or <see langword="null"/> if this drawable has no visual representation.
+    /// </summary>
+    protected virtual DrawNode? CreateDrawNode() => null;
 
     /// <summary>
     /// Computes the resolved local size in parent units. Subclasses such as <see cref="CompositeDrawable"/>
@@ -742,6 +800,7 @@ public class Drawable : IDisposable
         Parent = null;
         customClock = null;
         inheritedClock = null;
+        Array.Clear(drawNodes);
     }
 
     private RectangleF getAvailableParentRectangle()
