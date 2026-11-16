@@ -171,6 +171,19 @@ using (var smokeDrawable = new Drawable
     }
 }
 
+using (var sceneHost = new HeadlessGameHost())
+{
+    using var sceneGame = new SceneBoxSpriteSmokeGame();
+    sceneHost.RunFrames(sceneGame, 5);
+
+    if (sceneGame.SpriteDrawSize != new Vector2(16f, 8f)
+        || sceneHost.Renderer.LastFrameDrawCallCount != 2
+        || sceneHost.Renderer.LastFrameQuadCount != 2)
+    {
+        throw new InvalidOperationException("Box and Sprite scene check failed under NativeAOT.");
+    }
+}
+
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
 
@@ -230,6 +243,54 @@ internal sealed class HeadlessSmokeGame : Game
     {
         if (disposing)
             drawObserved.Dispose();
+
+        base.Dispose(disposing);
+    }
+}
+
+internal sealed class SceneBoxSpriteSmokeGame : Game
+{
+    private ITexture? spriteTexture;
+    private int updates;
+
+    public Vector2 SpriteDrawSize { get; private set; }
+
+    protected override void Load()
+    {
+        spriteTexture = Renderer.CreateTexture(16, 8);
+        spriteTexture.SetData(new byte[16 * 8 * 4]);
+
+        var box = new Box
+        {
+            Position = new Vector2(10f, 10f),
+            Size = new Vector2(32f, 24f),
+            Color = Color4.RED,
+        };
+
+        var sprite = new Sprite
+        {
+            Texture = spriteTexture,
+            Position = new Vector2(50f, 10f),
+            TextureCoords = new RectangleF(0f, 0f, 0.5f, 0.5f),
+            Sampler = TextureSamplerParameters.LINEAR_CLAMP,
+        };
+
+        SpriteDrawSize = sprite.DrawSize;
+        Root.AddRange([box, sprite]);
+    }
+
+    protected override void Update()
+    {
+        updates++;
+
+        if (updates >= 3 && !SpinWait.SpinUntil(() => Renderer.LastFrameQuadCount >= 2, TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("DrawThread did not render Box and Sprite smoke scene within timeout.");
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            spriteTexture?.Dispose();
 
         base.Dispose(disposing);
     }
