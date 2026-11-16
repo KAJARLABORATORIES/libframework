@@ -174,13 +174,15 @@ using (var smokeDrawable = new Drawable
 using (var sceneHost = new HeadlessGameHost())
 {
     using var sceneGame = new SceneBoxSpriteSmokeGame();
-    sceneHost.RunFrames(sceneGame, 5);
+    sceneHost.RunFrames(sceneGame, 8);
 
     if (sceneGame.SpriteDrawSize != new Vector2(16f, 8f)
-        || sceneHost.Renderer.LastFrameDrawCallCount != 2
-        || sceneHost.Renderer.LastFrameQuadCount != 2)
+        || sceneGame.ResizedChildDrawSize != new Vector2(470f, 260f)
+        || sceneGame.AutoSizedClusterDrawSize != new Vector2(84f, 44f)
+        || sceneHost.Renderer.LastFrameDrawCallCount < 2
+        || sceneHost.Renderer.LastFrameQuadCount != 4)
     {
-        throw new InvalidOperationException("Box and Sprite scene check failed under NativeAOT.");
+        throw new InvalidOperationException("Nested Container, Box, and Sprite scene check failed under NativeAOT.");
     }
 }
 
@@ -251,20 +253,50 @@ internal sealed class HeadlessSmokeGame : Game
 internal sealed class SceneBoxSpriteSmokeGame : Game
 {
     private ITexture? spriteTexture;
+    private Container? maskedContainer;
+    private Container? relativeBoxHost;
+    private Container<Box>? autoSizedGroup;
     private int updates;
+    private int drawPostResize;
 
     public Vector2 SpriteDrawSize { get; private set; }
+
+    public Vector2 ResizedChildDrawSize => relativeBoxHost?.DrawSize ?? Vector2.Zero;
+
+    public Vector2 AutoSizedClusterDrawSize => autoSizedGroup?.DrawSize ?? Vector2.Zero;
 
     protected override void Load()
     {
         spriteTexture = Renderer.CreateTexture(16, 8);
         spriteTexture.SetData(new byte[16 * 8 * 4]);
 
+        maskedContainer = new Container
+        {
+            Anchor = Anchor.CentreLeft,
+            Origin = Anchor.CentreLeft,
+            RelativeSizeAxes = Axes.Both,
+            Size = new Vector2(0.5f, 0.5f),
+            Padding = MarginPadding.All(10f),
+            Masking = true,
+            Rotation = 15f,
+        };
+
+        relativeBoxHost = new Container
+        {
+            Anchor = Anchor.Centre,
+            Origin = Anchor.Centre,
+            RelativeSizeAxes = Axes.Both,
+            RelativePositionAxes = Axes.X,
+            Size = new Vector2(0.5f, 0.5f),
+            Scale = new Vector2(1.1f, 1.1f),
+        };
+
         var box = new Box
         {
-            Position = new Vector2(10f, 10f),
-            Size = new Vector2(32f, 24f),
+            RelativeSizeAxes = Axes.Both,
+            Size = Vector2.One,
             Color = Color4.RED,
+            Depth = 1f,
         };
 
         var sprite = new Sprite
@@ -273,18 +305,54 @@ internal sealed class SceneBoxSpriteSmokeGame : Game
             Position = new Vector2(50f, 10f),
             TextureCoords = new RectangleF(0f, 0f, 0.5f, 0.5f),
             Sampler = TextureSamplerParameters.LINEAR_CLAMP,
+            Depth = -1f,
         };
 
         SpriteDrawSize = sprite.DrawSize;
-        Root.AddRange([box, sprite]);
+        relativeBoxHost.AddRange([box, sprite]);
+        maskedContainer.Add(relativeBoxHost);
+
+        autoSizedGroup = new Container<Box>
+        {
+            Anchor = Anchor.TopRight,
+            Origin = Anchor.TopRight,
+            AutoSizeAxes = Axes.Both,
+            Padding = MarginPadding.All(10f),
+        };
+
+        autoSizedGroup.AddRange([
+            new Box
+            {
+                Size = new Vector2(30f, 20f),
+                Margin = MarginPadding.All(2f),
+                Color = Color4.GREEN,
+            },
+            new Box
+            {
+                Position = new Vector2(34f, 0f),
+                Size = new Vector2(30f, 24f),
+                Color = Color4.CYAN,
+            },
+        ]);
+
+        Root.AddRange([maskedContainer, autoSizedGroup]);
     }
 
     protected override void Update()
     {
         updates++;
 
-        if (updates >= 3 && !SpinWait.SpinUntil(() => Renderer.LastFrameQuadCount >= 2, TimeSpan.FromSeconds(5)))
-            throw new TimeoutException("DrawThread did not render Box and Sprite smoke scene within timeout.");
+        if (updates == 3)
+            maskedContainer?.Size = new Vector2(0.75f, 0.75f);
+
+        if (updates >= 5 && !SpinWait.SpinUntil(() => Volatile.Read(ref drawPostResize) >= 2, TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("DrawThread did not render nested Container/Box/Sprite smoke scene within timeout.");
+    }
+
+    protected override void Draw()
+    {
+        if (Volatile.Read(ref updates) >= 4)
+            Interlocked.Increment(ref drawPostResize);
     }
 
     protected override void Dispose(bool disposing)
