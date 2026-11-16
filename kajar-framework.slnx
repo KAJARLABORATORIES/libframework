@@ -2,6 +2,7 @@
   <Folder Name="/Samples/">
     <Project Path="samples/aot-smoke/kajarlabs.Framework.Samples.AotSmoke.csproj" />
     <Project Path="samples/empty-window/kajarlabs.Framework.Samples.EmptyWindow.csproj" />
+    <Project Path="samples/nested-containers/kajarlabs.Framework.Samples.NestedContainers.csproj" />
     <Project Path="samples/sprite-batch-benchmark/kajarlabs.Framework.Samples.SpriteBatchBenchmark.csproj" />
   </Folder>
   <Folder Name="/Tests/">
