@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using kajarlabs.Framework;
+using kajarlabs.Framework.Bindables;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
@@ -11,6 +12,7 @@ using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Scene;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
+using Microsoft.Extensions.Logging;
 using SDL3;
 
 SDL.SetHint("SDL_VIDEO_DRIVER", "dummy");
@@ -206,6 +208,64 @@ using (var diDrawable = new DerivedSmokeDiDrawable())
         || !ReferenceEquals(diDrawable, childDeps.Get<DerivedSmokeDiDrawable>()))
     {
         throw new InvalidOperationException("Source-generated DI check failed under NativeAOT.");
+    }
+}
+
+{
+    var sourceText = new Bindable<string>("initial");
+    var boundText = sourceText.GetBoundCopy();
+    var observedText = string.Empty;
+    boundText.BindValueChanged(e => observedText = e.NewValue, runOnceImmediately: true);
+    sourceText.Value = "updated";
+
+    var toggle = new BindableBool();
+    var boundToggle = toggle.GetBoundCopy();
+    toggle.Toggle();
+
+    var number = new BindableNumber<float>(1.0f)
+    {
+        MinValue = 0.5f,
+        MaxValue = 2.0f,
+        Precision = 0.25f,
+    };
+    var boundNumber = new BindableNumber<float>();
+    boundNumber.BindTo(number);
+    number.Value = 3.2f;
+    number.Value = 1.37f;
+    number.Disabled = true;
+
+    if (observedText != "updated"
+        || !boundToggle.Value
+        || MathF.Abs(boundNumber.Value - 1.25f) > 0.0001f
+        || !boundNumber.Disabled)
+    {
+        throw new InvalidOperationException("Bindable reactive primitives check failed under NativeAOT.");
+    }
+
+    boundText.UnbindAll();
+    boundToggle.UnbindAll();
+    boundNumber.UnbindAll();
+}
+
+using (var phase4Host = new HeadlessGameHost())
+{
+    using var phase4Game = new Phase4SmokeGame();
+    phase4Host.RunFrames(phase4Game, 500);
+
+    if (phase4Game.AsyncChildTask is not { IsCompletedSuccessfully: true }
+        || phase4Game.AsyncBatchTask is not { IsCompletedSuccessfully: true }
+        || phase4Game.CancelledTask is not { IsCanceled: true }
+        || !phase4Game.CancelledChild.IsDisposed
+        || !ReferenceEquals(phase4Host, phase4Game.ResolvedHost)
+        || !ReferenceEquals(phase4Host, phase4Game.AsyncChild.ResolvedHost)
+        || phase4Game.AsyncChild.ResolvedWindow is not null
+        || phase4Game.SyncChild.LoadState != LoadState.Loaded
+        || phase4Game.AsyncChild.LoadState != LoadState.Loaded
+        || phase4Game.AsyncChild.Color != Color4.GREEN
+        || phase4Game.AsyncChild.DrawSize != new Vector2(125f, 125f)
+        || phase4Game.BatchChildren.Any(c => c.LoadState != LoadState.Loaded))
+    {
+        throw new InvalidOperationException("Phase 4 DI, Bindable, and sync/async load lifecycle check failed under NativeAOT.");
     }
 }
 
@@ -447,5 +507,164 @@ internal sealed partial class DerivedSmokeDiDrawable : BaseSmokeDiDrawable
     {
         CacheDependencies(dependencies);
         ResolveDependencies(dependencies);
+    }
+}
+
+internal sealed partial class Phase4SmokeGame : Game
+{
+    private readonly CancellationTokenSource cancelLoadCts = new();
+    private int phase;
+
+    [Cached]
+    public Bindable<Color4> AccentColor { get; } = new(Color4.CYAN);
+
+    [Cached]
+    public BindableNumber<float> ScaleFactor { get; } = new(1.0f)
+    {
+        MinValue = 0.5f,
+        MaxValue = 2.0f,
+        Precision = 0.25f,
+    };
+
+    [Resolved]
+    public GameHost ResolvedHost { get; private set; } = null!;
+
+    [Resolved]
+    public IRenderer ResolvedRenderer { get; private set; } = null!;
+
+    [Resolved]
+    public Storage ResolvedStorage { get; private set; } = null!;
+
+    [Resolved]
+    public ILoggerFactory ResolvedLoggerFactory { get; private set; } = null!;
+
+    [Resolved]
+    public GameWindow? ResolvedWindow { get; private set; }
+
+    public Phase4SyncChild SyncChild { get; } = new();
+
+    public Phase4AsyncChild AsyncChild { get; } = new();
+
+    public Phase4AsyncChild[] BatchChildren { get; } = [new(), new()];
+
+    public Phase4AsyncChild CancelledChild { get; } = new();
+
+    public Task<Phase4AsyncChild>? AsyncChildTask { get; private set; }
+
+    public Task<IReadOnlyList<Phase4AsyncChild>>? AsyncBatchTask { get; private set; }
+
+    public Task<Phase4AsyncChild>? CancelledTask { get; private set; }
+
+    protected override void Load()
+    {
+        Root.Add(SyncChild);
+        AsyncChildTask = Root.LoadComponentAsync(AsyncChild, Root.Add);
+        AsyncBatchTask = Root.LoadComponentsAsync(BatchChildren, Root.AddRange);
+
+        cancelLoadCts.Cancel();
+        CancelledTask = Root.LoadComponentAsync(CancelledChild, Root.Add, cancelLoadCts.Token);
+    }
+
+    protected override void Update()
+    {
+        if (phase == 0)
+        {
+            if (AsyncChildTask is { IsCompleted: true }
+                && AsyncBatchTask is { IsCompleted: true }
+                && AsyncChild.LoadState == LoadState.Loaded
+                && BatchChildren.All(c => c.LoadState == LoadState.Loaded))
+            {
+                AccentColor.Value = Color4.GREEN;
+                ScaleFactor.Value = 1.37f;
+                phase = 1;
+            }
+            else
+            {
+                Thread.Sleep(1);
+            }
+        }
+        else
+        {
+            Exit();
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            cancelLoadCts.Dispose();
+            AccentColor.UnbindAll();
+            ScaleFactor.UnbindAll();
+        }
+
+        base.Dispose(disposing);
+    }
+}
+
+internal sealed partial class Phase4SyncChild : Container
+{
+    [Resolved]
+    public Game ResolvedGame { get; private set; } = null!;
+
+    [Resolved]
+    private Bindable<Color4> accentColor = null!;
+
+    private readonly Bindable<Color4> boundAccent = new();
+
+    public Color4 ObservedColor { get; private set; }
+
+    protected override void Load() => boundAccent.BindTo(accentColor);
+
+    protected override void LoadComplete()
+        => boundAccent.BindValueChanged(e => ObservedColor = e.NewValue, runOnceImmediately: true);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            boundAccent.UnbindAll();
+
+        base.Dispose(disposing);
+    }
+}
+
+internal sealed partial class Phase4AsyncChild : Box
+{
+    [Resolved]
+    public GameHost ResolvedHost { get; private set; } = null!;
+
+    [Resolved]
+    public GameWindow? ResolvedWindow { get; private set; }
+
+    [Resolved]
+    private Bindable<Color4> accentColor = null!;
+
+    [Resolved]
+    private BindableNumber<float> scaleFactor = null!;
+
+    private readonly Bindable<Color4> boundAccent = new();
+    private readonly BindableNumber<float> boundScale = new();
+
+    protected override void Load()
+    {
+        boundAccent.BindTo(accentColor);
+        boundScale.BindTo(scaleFactor);
+    }
+
+    protected override void LoadComplete()
+    {
+        boundAccent.BindValueChanged(e => Color = e.NewValue, runOnceImmediately: true);
+        boundScale.BindValueChanged(e => Size = new Vector2(100f * e.NewValue, 100f * e.NewValue), runOnceImmediately: true);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            boundAccent.UnbindAll();
+            boundScale.UnbindAll();
+        }
+
+        base.Dispose(disposing);
     }
 }
