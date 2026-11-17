@@ -173,14 +173,38 @@ public class CompositeDrawable : Drawable
         ArgumentNullException.ThrowIfNull(child);
         ObjectDisposedException.ThrowIf(IsDisposed, this);
 
+        if (child.LoadState == LoadState.Loading)
+            throw new InvalidOperationException("Cannot add a Drawable while it is currently loading.");
+
         validateNoAncestorCycle(child);
 
         if (AutoSizeAxes != Axes.None)
             validateAutoSizeChild(AutoSizeAxes, child);
 
-        child.ChildID = ++nextChildId;
         child.SetParent(this);
 
+        if (LoadState is LoadState.Ready or LoadState.Loaded && child.LoadState == LoadState.NotLoaded)
+        {
+            try
+            {
+                child.Load(Dependencies);
+
+                if (AutoSizeAxes != Axes.None)
+                    validateAutoSizeChild(AutoSizeAxes, child);
+            }
+            catch
+            {
+                if (ReferenceEquals(child.Parent, this))
+                    child.SetParent(null);
+
+                throw;
+            }
+
+            if (!ReferenceEquals(child.Parent, this) || child.IsDisposed)
+                return;
+        }
+
+        child.ChildID = ++nextChildId;
         internalChildren.Add(child);
         childrenSortDirty = true;
         childrenVersion++;
@@ -415,6 +439,39 @@ public class CompositeDrawable : Drawable
 
         for (var i = 0; i < internalChildren.Count; i++)
             internalChildren[i].Invalidate(childInvalidation, InvalidationSource.Parent);
+    }
+
+    internal override void LoadChildren()
+    {
+        if (internalChildren.Count == 0)
+            return;
+
+        var pending = new List<Drawable>();
+
+        while (true)
+        {
+            EnsureChildrenSorted();
+            pending.Clear();
+
+            for (var i = 0; i < internalChildren.Count; i++)
+            {
+                var child = internalChildren[i];
+
+                if (child.LoadState == LoadState.NotLoaded)
+                    pending.Add(child);
+            }
+
+            if (pending.Count == 0)
+                break;
+
+            for (var i = 0; i < pending.Count; i++)
+            {
+                var child = pending[i];
+
+                if (ReferenceEquals(child.Parent, this) && !child.IsDisposed && child.LoadState == LoadState.NotLoaded)
+                    child.Load(Dependencies);
+            }
+        }
     }
 
     internal override DrawNode? GenerateDrawNodeSubtree(int treeIndex, RectangleI? parentScissor = null)

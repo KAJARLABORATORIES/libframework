@@ -2,6 +2,7 @@ using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Numerics;
+using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
 
 namespace kajarlabs.Framework.Scene;
@@ -36,6 +37,8 @@ public class Drawable : IDisposable
 
     private IFrameBasedClock? customClock;
     private IFrameBasedClock? inheritedClock;
+    private Scheduler? scheduler;
+    private int loadState = (int)LoadState.NotLoaded;
     private readonly DrawNode?[] drawNodes = new DrawNode?[3];
 
     private CacheFlags validCaches;
@@ -361,6 +364,22 @@ public class Drawable : IDisposable
     public bool IsDisposed { get; private set; }
 
     /// <summary>
+    /// Gets the current loading lifecycle state of this drawable.
+    /// </summary>
+    public LoadState LoadState => (LoadState)Volatile.Read(ref loadState);
+
+    /// <summary>
+    /// Gets the read-only dependency collection resolved for this drawable during loading,
+    /// or <see cref="DependencyCollection.EMPTY"/> before loading begins.
+    /// </summary>
+    public IReadOnlyDependencyCollection Dependencies { get; private set; } = DependencyCollection.EMPTY;
+
+    /// <summary>
+    /// Gets the lazily allocated thread-affine scheduler drained during <see cref="UpdateSubTree"/>.
+    /// </summary>
+    public Scheduler Scheduler => scheduler ?? initializeScheduler();
+
+    /// <summary>
     /// Gets or sets the blending mode applied when rendering this drawable.
     /// </summary>
     public BlendingParameters Blending
@@ -650,18 +669,72 @@ public class Drawable : IDisposable
         => TryToLocalSpace(screenSpacePosition, out var localPosition) && DrawRectangle.Contains(localPosition);
 
     /// <summary>
+    /// Schedules <paramref name="action"/> to execute on the update thread during the next <see cref="UpdateSubTree"/> pass.
+    /// </summary>
+    public ScheduledDelegate Schedule(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        var scheduled = Scheduler.Add(action);
+
+        if (IsDisposed)
+            scheduled.Cancel();
+
+        return scheduled;
+    }
+
+    /// <summary>
+    /// Schedules <paramref name="action"/> to execute on the update thread after <paramref name="timeUntilRun"/> milliseconds
+    /// relative to <see cref="Clock"/>.
+    /// </summary>
+    public ScheduledDelegate ScheduleDelayed(Action action, double timeUntilRun, bool repeat = false)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        var scheduled = Scheduler.AddDelayed(action, timeUntilRun, repeat);
+
+        if (IsDisposed)
+            scheduled.Cancel();
+
+        return scheduled;
+    }
+
+    /// <summary>
     /// Advances this drawable and its subtree for the current frame.
     /// </summary>
-    /// <returns><see langword="false"/> if this drawable is disposed and was skipped; otherwise <see langword="true"/>.</returns>
+    /// <returns>
+    /// <see langword="false"/> if this drawable is disposed or currently <see cref="LoadState.Loading"/> and was skipped;
+    /// otherwise <see langword="true"/>.
+    /// </returns>
     public virtual bool UpdateSubTree()
     {
-        if (IsDisposed)
+        if (IsDisposed || LoadState == LoadState.Loading)
             return false;
 
         if (customClock is not null && ProcessCustomClock)
             customClock.ProcessFrame();
 
+        if (Interlocked.CompareExchange(ref loadState, (int)LoadState.Loaded, (int)LoadState.Ready) == (int)LoadState.Ready)
+        {
+            LoadComplete();
+
+            if (IsDisposed)
+                return false;
+        }
+
+        if (scheduler is not null)
+        {
+            scheduler.SetCurrentThread();
+            scheduler.Update();
+
+            if (IsDisposed)
+                return false;
+        }
+
         Update();
+
+        if (IsDisposed)
+            return false;
 
         if (UpdateChildren())
             UpdateAfterChildren();
@@ -678,9 +751,57 @@ public class Drawable : IDisposable
 
     internal long ChildID { get; set; }
 
+    internal bool Load(IReadOnlyDependencyCollection parentDependencies)
+    {
+        ArgumentNullException.ThrowIfNull(parentDependencies);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+        var previous = (LoadState)Interlocked.CompareExchange(ref loadState, (int)LoadState.Loading, (int)LoadState.NotLoaded);
+
+        if (previous == LoadState.Loading)
+            throw new InvalidOperationException("Cannot load a Drawable while it is already loading.");
+
+        if (previous != LoadState.NotLoaded)
+            return false;
+
+        try
+        {
+            var ownDependencies = new DependencyCollection(parentDependencies);
+            InvokeCacheDependencies(ownDependencies);
+
+            var effectiveDependencies = ownDependencies.Count > 0 ? ownDependencies : parentDependencies;
+            Dependencies = effectiveDependencies;
+
+            InvokeResolveDependencies(effectiveDependencies);
+            Load();
+
+            if (IsDisposed)
+                return false;
+
+            LoadChildren();
+
+            if (IsDisposed)
+                return false;
+
+            Volatile.Write(ref loadState, (int)LoadState.Ready);
+            Invalidate(Invalidation.DrawNode);
+            return true;
+        }
+        catch
+        {
+            Dependencies = DependencyCollection.EMPTY;
+            Volatile.Write(ref loadState, (int)LoadState.NotLoaded);
+            throw;
+        }
+    }
+
+    internal virtual void LoadChildren()
+    {
+    }
+
     internal virtual DrawNode? GenerateDrawNodeSubtree(int treeIndex, RectangleI? parentScissor = null)
     {
-        if (IsDisposed || !IsPresent)
+        if (IsDisposed || !IsPresent || LoadState == LoadState.Loading)
             return null;
 
         var node = drawNodes[treeIndex];
@@ -764,6 +885,20 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
+    /// Performs initialization logic during component loading after dependencies have been cached and resolved.
+    /// </summary>
+    protected virtual void Load()
+    {
+    }
+
+    /// <summary>
+    /// Performs post-load initialization on the update thread once this drawable transitions to <see cref="LoadState.Loaded"/>.
+    /// </summary>
+    protected virtual void LoadComplete()
+    {
+    }
+
+    /// <summary>
     /// Performs per-frame update logic on the update thread.
     /// </summary>
     protected virtual void Update()
@@ -820,10 +955,25 @@ public class Drawable : IDisposable
             return;
 
         IsDisposed = true;
+
+        if (scheduler is not null)
+        {
+            scheduler.SetCurrentThread();
+            scheduler.CancelPendingTasks();
+        }
+
+        Dependencies = DependencyCollection.EMPTY;
         Parent = null;
         customClock = null;
         inheritedClock = null;
         Array.Clear(drawNodes);
+    }
+
+    private Scheduler initializeScheduler()
+    {
+        var created = new Scheduler(new DrawableClockProxy(this));
+        var existing = Interlocked.CompareExchange(ref scheduler, created, null);
+        return existing ?? created;
     }
 
     private RectangleF getAvailableParentRectangle()
@@ -855,5 +1005,14 @@ public class Drawable : IDisposable
             flags |= CacheFlags.DrawSize | CacheFlags.AnchorPosition | CacheFlags.DrawPosition | CacheFlags.OriginPosition | CacheFlags.LocalTransform | CacheFlags.DrawInfo | CacheFlags.ScreenSpaceDrawQuad | CacheFlags.DrawColorInfo;
 
         return flags;
+    }
+
+    private sealed class DrawableClockProxy(Drawable owner) : IClock
+    {
+        public double CurrentTime => owner.Time;
+
+        public double Rate => owner.Clock?.Rate ?? 1.0;
+
+        public bool IsRunning => owner.Clock?.IsRunning ?? false;
     }
 }
