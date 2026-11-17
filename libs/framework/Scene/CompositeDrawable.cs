@@ -1,5 +1,7 @@
 using System.Numerics;
+using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Numerics;
+using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
 
 namespace kajarlabs.Framework.Scene;
@@ -14,11 +16,15 @@ public class CompositeDrawable : Drawable
 
     private readonly List<Drawable> internalChildren = [];
     private readonly List<Drawable> updateBuffer = [];
+    private readonly Lock childrenLock = new();
+    private readonly Lock asyncLoadLock = new();
 
+    private HashSet<IPendingAsyncLoad>? pendingAsyncLoads;
     private long nextChildId;
     private long childrenVersion;
     private bool childrenSortDirty;
     private bool isComputingAutoSize;
+    private bool isDisposingOrDisposed;
     private Vector2 inProgressAutoSize;
     private Vector2 lastObservedAutoSize;
 
@@ -166,12 +172,96 @@ public class CompositeDrawable : Drawable
     }
 
     /// <summary>
+    /// Asynchronously executes <see cref="Drawable.Load()"/> for <paramref name="component"/> off the update thread
+    /// using this composite's <see cref="Drawable.Dependencies"/>, then marshals <paramref name="onLoaded"/>
+    /// back onto the update thread via <see cref="Drawable.Scheduler"/>.
+    /// </summary>
+    /// <typeparam name="TDrawable">The type of component to load.</typeparam>
+    /// <param name="component">The component to load asynchronously.</param>
+    /// <param name="onLoaded">Optional callback invoked on the update thread once loading completes (for example, <see cref="Container{T}.Add"/> or <see cref="AddInternal"/>).</param>
+    /// <param name="cancellationToken">Optional token used to cancel loading before completion.</param>
+    /// <returns>A task that completes on the update thread with <paramref name="component"/> after <paramref name="onLoaded"/> has executed.</returns>
+    public Task<TDrawable> LoadComponentAsync<TDrawable>(
+        TDrawable component,
+        Action<TDrawable>? onLoaded = null,
+        CancellationToken cancellationToken = default)
+        where TDrawable : Drawable
+    {
+        ArgumentNullException.ThrowIfNull(component);
+        ObjectDisposedException.ThrowIf(IsDisposed || Volatile.Read(ref isDisposingOrDisposed), this);
+        ObjectDisposedException.ThrowIf(component.IsDisposed, component);
+
+        if (component.LoadState == LoadState.Loading)
+            throw new InvalidOperationException("Cannot load a Drawable while it is already loading.");
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            component.Dispose();
+            return Task.FromCanceled<TDrawable>(cancellationToken);
+        }
+
+        var items = new[] { component };
+        Action? invokeOnLoaded = onLoaded is not null ? () => onLoaded(items[0]) : null;
+        return loadComponentsCore(items, invokeOnLoaded, static loaded => loaded[0], cancellationToken);
+    }
+
+    /// <summary>
+    /// Asynchronously executes <see cref="Drawable.Load()"/> for all <paramref name="components"/> off the update thread
+    /// using this composite's <see cref="Drawable.Dependencies"/>, then marshals <paramref name="onLoaded"/>
+    /// back onto the update thread via <see cref="Drawable.Scheduler"/> in the original order.
+    /// </summary>
+    /// <typeparam name="TDrawable">The element type of components to load.</typeparam>
+    /// <param name="components">The components to load asynchronously.</param>
+    /// <param name="onLoaded">Optional callback invoked on the update thread once all components finish loading (for example, <see cref="Container{T}.AddRange"/> or <see cref="AddRangeInternal"/>).</param>
+    /// <param name="cancellationToken">Optional token used to cancel loading before completion.</param>
+    /// <returns>A task that completes on the update thread with the loaded components after <paramref name="onLoaded"/> has executed.</returns>
+    public Task<IReadOnlyList<TDrawable>> LoadComponentsAsync<TDrawable>(
+        IEnumerable<TDrawable> components,
+        Action<IEnumerable<TDrawable>>? onLoaded = null,
+        CancellationToken cancellationToken = default)
+        where TDrawable : Drawable
+    {
+        ArgumentNullException.ThrowIfNull(components);
+        ObjectDisposedException.ThrowIf(IsDisposed || Volatile.Read(ref isDisposingOrDisposed), this);
+
+        var items = components.ToArray();
+        HashSet<Drawable>? seen = items.Length > 1 ? [] : null;
+
+        for (var i = 0; i < items.Length; i++)
+        {
+            var item = items[i];
+            ArgumentNullException.ThrowIfNull(item, nameof(components));
+            ObjectDisposedException.ThrowIf(item.IsDisposed, item);
+
+            if (item.LoadState == LoadState.Loading)
+                throw new InvalidOperationException("Cannot load a Drawable while it is already loading.");
+
+            if (seen is not null && !seen.Add(item))
+                throw new ArgumentException("Cannot load the same component instance multiple times in a single batch.", nameof(components));
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            for (var i = 0; i < items.Length; i++)
+                items[i].Dispose();
+
+            return Task.FromCanceled<IReadOnlyList<TDrawable>>(cancellationToken);
+        }
+
+        if (items.Length == 0 && onLoaded is null)
+            return Task.FromResult<IReadOnlyList<TDrawable>>(Array.Empty<TDrawable>());
+
+        Action? invokeOnLoaded = onLoaded is not null ? () => onLoaded(items) : null;
+        return loadComponentsCore<TDrawable, IReadOnlyList<TDrawable>>(items, invokeOnLoaded, static loaded => loaded, cancellationToken);
+    }
+
+    /// <summary>
     /// Adds a child to <see cref="InternalChildren"/>.
     /// </summary>
     protected void AddInternal(Drawable child)
     {
         ArgumentNullException.ThrowIfNull(child);
-        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        ObjectDisposedException.ThrowIf(IsDisposed || Volatile.Read(ref isDisposingOrDisposed), this);
 
         if (child.LoadState == LoadState.Loading)
             throw new InvalidOperationException("Cannot add a Drawable while it is currently loading.");
@@ -204,10 +294,22 @@ public class CompositeDrawable : Drawable
                 return;
         }
 
-        child.ChildID = ++nextChildId;
-        internalChildren.Add(child);
-        childrenSortDirty = true;
-        childrenVersion++;
+        lock (childrenLock)
+        {
+            if (isDisposingOrDisposed || IsDisposed)
+            {
+                if (ReferenceEquals(child.Parent, this))
+                    child.SetParent(null);
+
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+
+            child.ChildID = ++nextChildId;
+            internalChildren.Add(child);
+            childrenSortDirty = true;
+            childrenVersion++;
+        }
+
         OnChildrenChanged();
 
         if (AutoSizeAxes != Axes.None)
@@ -235,11 +337,15 @@ public class CompositeDrawable : Drawable
     {
         ArgumentNullException.ThrowIfNull(child);
 
-        if (!internalChildren.Remove(child))
-            return false;
+        lock (childrenLock)
+        {
+            if (!internalChildren.Remove(child))
+                return false;
+
+            childrenVersion++;
+        }
 
         child.SetParent(null);
-        childrenVersion++;
         OnChildrenChanged();
 
         if (disposeImmediately)
@@ -258,21 +364,28 @@ public class CompositeDrawable : Drawable
     /// </summary>
     protected void ClearInternal(bool disposeImmediately = true)
     {
-        if (internalChildren.Count == 0)
-            return;
+        Drawable[]? removed;
 
-        for (var i = internalChildren.Count - 1; i >= 0; i--)
+        lock (childrenLock)
         {
-            var child = internalChildren[i];
-            internalChildren.RemoveAt(i);
+            if (internalChildren.Count == 0)
+                return;
+
+            removed = [.. internalChildren];
+            internalChildren.Clear();
+            childrenSortDirty = false;
+            childrenVersion++;
+        }
+
+        for (var i = removed.Length - 1; i >= 0; i--)
+        {
+            var child = removed[i];
             child.SetParent(null);
 
             if (disposeImmediately)
                 child.Dispose();
         }
 
-        childrenSortDirty = false;
-        childrenVersion++;
         OnChildrenChanged();
 
         if (AutoSizeAxes != Axes.None)
@@ -441,24 +554,29 @@ public class CompositeDrawable : Drawable
             internalChildren[i].Invalidate(childInvalidation, InvalidationSource.Parent);
     }
 
-    internal override void LoadChildren()
+    internal override void LoadChildren(CancellationToken cancellationToken)
     {
-        if (internalChildren.Count == 0)
-            return;
-
         var pending = new List<Drawable>();
 
         while (true)
         {
-            EnsureChildrenSorted();
-            pending.Clear();
+            cancellationToken.ThrowIfCancellationRequested();
 
-            for (var i = 0; i < internalChildren.Count; i++)
+            lock (childrenLock)
             {
-                var child = internalChildren[i];
+                if (isDisposingOrDisposed || IsDisposed || internalChildren.Count == 0)
+                    return;
 
-                if (child.LoadState == LoadState.NotLoaded)
-                    pending.Add(child);
+                EnsureChildrenSorted();
+                pending.Clear();
+
+                for (var i = 0; i < internalChildren.Count; i++)
+                {
+                    var child = internalChildren[i];
+
+                    if (child.LoadState == LoadState.NotLoaded)
+                        pending.Add(child);
+                }
             }
 
             if (pending.Count == 0)
@@ -466,10 +584,15 @@ public class CompositeDrawable : Drawable
 
             for (var i = 0; i < pending.Count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (Volatile.Read(ref isDisposingOrDisposed) || IsDisposed)
+                    return;
+
                 var child = pending[i];
 
                 if (ReferenceEquals(child.Parent, this) && !child.IsDisposed && child.LoadState == LoadState.NotLoaded)
-                    child.Load(Dependencies);
+                    child.LoadCore(Dependencies, cancellationToken);
             }
         }
     }
@@ -551,18 +674,91 @@ public class CompositeDrawable : Drawable
         if (!disposing || IsDisposed)
             return;
 
-        for (var i = internalChildren.Count - 1; i >= 0; i--)
+        IPendingAsyncLoad[]? loadsToCancel = null;
+
+        lock (asyncLoadLock)
         {
-            var child = internalChildren[i];
-            internalChildren.RemoveAt(i);
-            child.SetParent(null);
-            child.Dispose();
+            if (isDisposingOrDisposed)
+                return;
+
+            Volatile.Write(ref isDisposingOrDisposed, true);
+
+            if (pendingAsyncLoads is { Count: > 0 })
+            {
+                loadsToCancel = [.. pendingAsyncLoads];
+                pendingAsyncLoads.Clear();
+            }
+        }
+
+        if (loadsToCancel is not null)
+        {
+            for (var i = 0; i < loadsToCancel.Length; i++)
+                loadsToCancel[i].CancelFromParentDispose();
+        }
+
+        Drawable[]? childrenToDispose = null;
+
+        lock (childrenLock)
+        {
+            if (internalChildren.Count > 0)
+            {
+                childrenToDispose = [.. internalChildren];
+                internalChildren.Clear();
+            }
+
+            childrenSortDirty = false;
+            childrenVersion++;
+        }
+
+        if (childrenToDispose is not null)
+        {
+            for (var i = childrenToDispose.Length - 1; i >= 0; i--)
+            {
+                var child = childrenToDispose[i];
+                child.SetParent(null);
+                child.Dispose();
+            }
         }
 
         updateBuffer.Clear();
-        childrenSortDirty = false;
-        childrenVersion++;
         base.Dispose(disposing);
+    }
+
+    private Task<TResult> loadComponentsCore<TDrawable, TResult>(
+        TDrawable[] items,
+        Action? invokeOnLoaded,
+        Func<TDrawable[], TResult> resultSelector,
+        CancellationToken cancellationToken)
+        where TDrawable : Drawable
+    {
+        var pendingLoad = new PendingAsyncLoad<TDrawable, TResult>(
+            this,
+            items,
+            invokeOnLoaded,
+            resultSelector,
+            Dependencies,
+            cancellationToken);
+
+        return pendingLoad.Start();
+    }
+
+    private bool tryRegisterPendingLoad(IPendingAsyncLoad pendingLoad)
+    {
+        lock (asyncLoadLock)
+        {
+            if (isDisposingOrDisposed || IsDisposed)
+                return false;
+
+            pendingAsyncLoads ??= [];
+            pendingAsyncLoads.Add(pendingLoad);
+            return true;
+        }
+    }
+
+    private void unregisterPendingLoad(IPendingAsyncLoad pendingLoad)
+    {
+        lock (asyncLoadLock)
+            pendingAsyncLoads?.Remove(pendingLoad);
     }
 
     private void notifyAutoSizeInvalidated()
@@ -621,6 +817,424 @@ public class CompositeDrawable : Drawable
 
             if ((child.Anchor & (Anchor.VerticalCentre | Anchor.Bottom)) != 0)
                 throw new InvalidOperationException("A child inside a Y-auto-sized container cannot anchor to VerticalCentre or Bottom.");
+        }
+    }
+
+    private interface IPendingAsyncLoad
+    {
+        void CancelFromParentDispose();
+    }
+
+    private enum AsyncLoadPhase
+    {
+        Loading,
+        Scheduled,
+        Completing,
+        Done,
+    }
+
+    private sealed class PendingAsyncLoad<TDrawable, TResult> : IPendingAsyncLoad
+        where TDrawable : Drawable
+    {
+        private readonly CompositeDrawable owner;
+        private readonly TDrawable[] components;
+        private readonly Action? invokeOnLoaded;
+        private readonly Func<TDrawable[], TResult> resultSelector;
+        private readonly IReadOnlyDependencyCollection parentDependencies;
+        private readonly CancellationToken externalToken;
+        private readonly CancellationTokenSource linkedCts;
+        private readonly TaskCompletionSource<TResult> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Lock stateLock = new();
+        private readonly Action disposeCallback;
+
+        private CancellationTokenRegistration externalRegistration;
+        private ScheduledDelegate? scheduledDelegate;
+        private AsyncLoadPhase phase = AsyncLoadPhase.Loading;
+        private int ctsRefCount;
+        private bool externalCancelRequested;
+        private bool callbacksRegistered;
+
+        public PendingAsyncLoad(
+            CompositeDrawable owner,
+            TDrawable[] components,
+            Action? invokeOnLoaded,
+            Func<TDrawable[], TResult> resultSelector,
+            IReadOnlyDependencyCollection parentDependencies,
+            CancellationToken externalToken)
+        {
+            this.owner = owner;
+            this.components = components;
+            this.invokeOnLoaded = invokeOnLoaded;
+            this.resultSelector = resultSelector;
+            this.parentDependencies = parentDependencies;
+            this.externalToken = externalToken;
+
+            linkedCts = new CancellationTokenSource();
+            disposeCallback = onComponentDisposed;
+            ctsRefCount = components.Length > 0 ? 2 : 1;
+        }
+
+        public Task<TResult> Start()
+        {
+            if (!owner.tryRegisterPendingLoad(this))
+            {
+                linkedCts.Dispose();
+                throw new ObjectDisposedException(owner.GetType().FullName);
+            }
+
+            if (components.Length > 0)
+            {
+                callbacksRegistered = true;
+
+                for (var i = 0; i < components.Length; i++)
+                {
+                    if (!components[i].RegisterDisposeCallback(disposeCallback))
+                    {
+                        cancelImmediate(disposeAllComponents: true);
+                        releaseLinkedCts();
+                        return tcs.Task;
+                    }
+                }
+
+                // If a sibling component disposed concurrently during registration, clean up any callbacks registered after.
+                lock (stateLock)
+                {
+                    if (phase != AsyncLoadPhase.Loading)
+                    {
+                        for (var i = 0; i < components.Length; i++)
+                            components[i].UnregisterDisposeCallback(disposeCallback);
+
+                        releaseLinkedCts();
+                        return tcs.Task;
+                    }
+                }
+            }
+
+            if (externalToken.CanBeCanceled)
+            {
+                externalRegistration = externalToken.Register(
+                    static state => ((PendingAsyncLoad<TDrawable, TResult>)state!).onExternalCancelled(),
+                    this);
+            }
+
+            if (components.Length == 0)
+            {
+                scheduleCompletion();
+                return tcs.Task;
+            }
+
+            _ = Task.Run(executeBackgroundLoadAsync);
+            return tcs.Task;
+        }
+
+        public void CancelFromParentDispose()
+        {
+            cancelImmediate(disposeAllComponents: true);
+        }
+
+        private async Task executeBackgroundLoadAsync()
+        {
+            Exception? failure = null;
+
+            try
+            {
+                var token = linkedCts.Token;
+
+                if (components.Length == 1)
+                {
+                    components[0].LoadCore(parentDependencies, token);
+                }
+                else
+                {
+                    using var batchAbortCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    var batchToken = batchAbortCts.Token;
+                    var tasks = new Task[components.Length];
+
+                    for (var i = 0; i < components.Length; i++)
+                    {
+                        var component = components[i];
+                        tasks[i] = Task.Run(() =>
+                        {
+                            try
+                            {
+                                component.LoadCore(parentDependencies, batchToken);
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException || !batchToken.IsCancellationRequested)
+                            {
+                                Interlocked.CompareExchange(ref failure, ex, null);
+                                batchAbortCts.Cancel();
+                            }
+                        });
+                    }
+
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Interlocked.CompareExchange(ref failure, ex, null);
+            }
+            finally
+            {
+                releaseLinkedCts();
+            }
+
+            onBackgroundLoadFinished(failure);
+        }
+
+        private void onBackgroundLoadFinished(Exception? failure)
+        {
+            bool isCancelled;
+
+            lock (stateLock)
+            {
+                if (phase != AsyncLoadPhase.Loading)
+                    return;
+
+                isCancelled = externalCancelRequested
+                              || linkedCts.IsCancellationRequested
+                              || Volatile.Read(ref owner.isDisposingOrDisposed)
+                              || owner.IsDisposed
+                              || anyComponentDisposed();
+
+                if (isCancelled || failure is not null)
+                    phase = AsyncLoadPhase.Done;
+            }
+
+            if (isCancelled)
+            {
+                cleanupTracking();
+                disposeUndisposedComponents();
+                tcs.TrySetCanceled(selectCancelToken());
+                releaseLinkedCts();
+                return;
+            }
+
+            if (failure is not null)
+            {
+                cleanupTracking();
+
+                if (components.Length > 1)
+                    disposeReadyBatchComponents();
+
+                tcs.TrySetException(failure);
+                releaseLinkedCts();
+                return;
+            }
+
+            scheduleCompletion();
+        }
+
+        private void scheduleCompletion()
+        {
+            ScheduledDelegate? scheduled;
+
+            lock (stateLock)
+            {
+                if (phase != AsyncLoadPhase.Loading)
+                    return;
+
+                if (externalCancelRequested
+                    || linkedCts.IsCancellationRequested
+                    || Volatile.Read(ref owner.isDisposingOrDisposed)
+                    || owner.IsDisposed
+                    || anyComponentDisposed())
+                {
+                    phase = AsyncLoadPhase.Done;
+                    scheduled = null;
+                }
+                else
+                {
+                    phase = AsyncLoadPhase.Scheduled;
+                    scheduled = owner.Schedule(completeOnUpdateThread);
+                    scheduledDelegate = scheduled;
+                }
+            }
+
+            if (scheduled is null)
+            {
+                cleanupTracking();
+                disposeUndisposedComponents();
+                tcs.TrySetCanceled(selectCancelToken());
+                releaseLinkedCts();
+                return;
+            }
+
+            // Re-check in case parent/component disposal raced with owner.Schedule above.
+            if (Volatile.Read(ref owner.isDisposingOrDisposed) || owner.IsDisposed || anyComponentDisposed())
+                cancelImmediate(disposeAllComponents: true);
+        }
+
+        private void completeOnUpdateThread()
+        {
+            lock (stateLock)
+            {
+                if (phase != AsyncLoadPhase.Scheduled)
+                    return;
+
+                scheduledDelegate = null;
+
+                if (externalCancelRequested
+                    || linkedCts.IsCancellationRequested
+                    || Volatile.Read(ref owner.isDisposingOrDisposed)
+                    || owner.IsDisposed
+                    || anyComponentDisposed())
+                {
+                    phase = AsyncLoadPhase.Done;
+                    goto cancelled;
+                }
+
+                phase = AsyncLoadPhase.Completing;
+            }
+
+            cleanupTracking();
+
+            try
+            {
+                invokeOnLoaded?.Invoke();
+                var result = resultSelector(components);
+
+                lock (stateLock)
+                    phase = AsyncLoadPhase.Done;
+
+                tcs.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                lock (stateLock)
+                    phase = AsyncLoadPhase.Done;
+
+                if (Volatile.Read(ref owner.isDisposingOrDisposed) || owner.IsDisposed || anyComponentDisposed() || linkedCts.IsCancellationRequested)
+                {
+                    disposeUndisposedComponents();
+                    tcs.TrySetCanceled(selectCancelToken());
+                }
+                else
+                {
+                    tcs.TrySetException(ex);
+                }
+            }
+            finally
+            {
+                releaseLinkedCts();
+            }
+
+            return;
+
+        cancelled:
+            cleanupTracking();
+            disposeUndisposedComponents();
+            tcs.TrySetCanceled(selectCancelToken());
+            releaseLinkedCts();
+        }
+
+        private void onComponentDisposed()
+        {
+            cancelImmediate(disposeAllComponents: true);
+        }
+
+        private void onExternalCancelled()
+        {
+            externalCancelRequested = true;
+            linkedCts.Cancel();
+
+            ScheduledDelegate? pendingDelegate;
+
+            lock (stateLock)
+            {
+                if (phase != AsyncLoadPhase.Scheduled)
+                    return;
+
+                phase = AsyncLoadPhase.Done;
+                pendingDelegate = scheduledDelegate;
+                scheduledDelegate = null;
+            }
+
+            pendingDelegate?.Cancel();
+            cleanupTracking();
+            disposeUndisposedComponents();
+            tcs.TrySetCanceled(externalToken);
+            releaseLinkedCts();
+        }
+
+        private void cancelImmediate(bool disposeAllComponents)
+        {
+            linkedCts.Cancel();
+
+            ScheduledDelegate? pendingDelegate;
+
+            lock (stateLock)
+            {
+                if (phase is AsyncLoadPhase.Completing or AsyncLoadPhase.Done)
+                    return;
+
+                phase = AsyncLoadPhase.Done;
+                pendingDelegate = scheduledDelegate;
+                scheduledDelegate = null;
+            }
+
+            pendingDelegate?.Cancel();
+            cleanupTracking();
+
+            if (disposeAllComponents)
+                disposeUndisposedComponents();
+
+            tcs.TrySetCanceled(selectCancelToken());
+            releaseLinkedCts();
+        }
+
+        private void cleanupTracking()
+        {
+            owner.unregisterPendingLoad(this);
+            externalRegistration.Dispose();
+
+            if (callbacksRegistered)
+            {
+                callbacksRegistered = false;
+
+                for (var i = 0; i < components.Length; i++)
+                    components[i].UnregisterDisposeCallback(disposeCallback);
+            }
+        }
+
+        private bool anyComponentDisposed()
+        {
+            for (var i = 0; i < components.Length; i++)
+            {
+                if (components[i].IsDisposed)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void disposeUndisposedComponents()
+        {
+            for (var i = 0; i < components.Length; i++)
+            {
+                if (!components[i].IsDisposed)
+                    components[i].Dispose();
+            }
+        }
+
+        private void disposeReadyBatchComponents()
+        {
+            for (var i = 0; i < components.Length; i++)
+            {
+                var component = components[i];
+
+                if (!component.IsDisposed && component.LoadState != LoadState.NotLoaded)
+                    component.Dispose();
+            }
+        }
+
+        private CancellationToken selectCancelToken()
+            => externalCancelRequested && externalToken.CanBeCanceled ? externalToken : CancellationToken.None;
+
+        private void releaseLinkedCts()
+        {
+            if (Interlocked.Decrement(ref ctsRefCount) == 0)
+                linkedCts.Dispose();
         }
     }
 

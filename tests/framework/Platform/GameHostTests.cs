@@ -1,16 +1,18 @@
 using System.Collections.Concurrent;
+using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
+using kajarlabs.Framework.Scene;
 using kajarlabs.Framework.Tests.TestUtilities;
 using Microsoft.Extensions.Logging;
 using SDL3;
 
 namespace kajarlabs.Framework.Tests.Platform;
 
-public sealed class GameHostTests : IDisposable
+public sealed partial class GameHostTests : IDisposable
 {
     private readonly string tempDir = Path.Combine(Path.GetTempPath(), $"kajarlabs-host-{Guid.NewGuid():N}");
 
@@ -411,6 +413,22 @@ public sealed class GameHostTests : IDisposable
         Assert.True(Array.IndexOf(orderedEvents, "DestroyWindow") > Array.IndexOf(orderedEvents, "DestroyDevice"));
     }
 
+    [Fact]
+    public void WindowedHostCachesNonNullGameWindowInRootDependencies()
+    {
+        var backend = new FakePlatformBackend();
+        using var host = new GameHost(createTestOptions(), backend);
+        using var game = new WindowDependencyProbeGame();
+
+        host.Run(game);
+
+        Assert.NotNull(host.Window);
+        Assert.Same(host.Window, game.ResolvedWindow);
+        Assert.Same(host.Window, game.Child.ResolvedWindow);
+        Assert.Same(host, game.Child.ResolvedHost);
+        Assert.Same(game, game.Child.ResolvedGame);
+    }
+
     private static string readAllTextShared(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -430,6 +448,32 @@ public sealed class GameHostTests : IDisposable
     private sealed class ImmediateExitGame : Game
     {
         protected override void Load() => Exit();
+    }
+
+    private sealed partial class WindowDependencyProbeGame : Game
+    {
+        [Resolved]
+        public GameWindow ResolvedWindow { get; private set; } = null!;
+
+        public WindowConsumerDrawable Child { get; } = new();
+
+        protected override void Load()
+        {
+            Root.Add(Child);
+            Exit();
+        }
+    }
+
+    private sealed partial class WindowConsumerDrawable : Drawable
+    {
+        [Resolved]
+        public Game ResolvedGame { get; private set; } = null!;
+
+        [Resolved]
+        public GameHost ResolvedHost { get; private set; } = null!;
+
+        [Resolved]
+        public GameWindow ResolvedWindow { get; private set; } = null!;
     }
 
     private sealed class RecordingGame(int exitAfterUpdates) : Game
