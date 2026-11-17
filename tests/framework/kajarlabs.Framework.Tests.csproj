@@ -10,9 +10,18 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\libs\framework\kajarlabs.Framework.csproj" />
+    <ProjectReference Update="..\..\libs\code-analysis\kajarlabs.Framework.CodeAnalysis.csproj"
+                      OutputItemType=""
+                      ReferenceOutputAssembly="true" />
   </ItemGroup>
+  <Target Name="AddGeneratorAsAnalyzer" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Include="@(ReferencePath)" Condition="'%(Filename)' == 'kajarlabs.Framework.CodeAnalysis'" />
+    </ItemGroup>
+  </Target>
 </Project>

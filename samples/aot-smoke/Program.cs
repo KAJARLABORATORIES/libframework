@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using kajarlabs.Framework;
+using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Graphics.Rendering.Vertices;
@@ -186,6 +187,24 @@ using (var sceneHost = new HeadlessGameHost())
     }
 }
 
+using (var diGame = new SmokeDiGame())
+using (var diDrawable = new DerivedSmokeDiDrawable())
+{
+    var rootDeps = new DependencyCollection();
+    diGame.RunSmokeDi(rootDeps);
+
+    var childDeps = new DependencyCollection(rootDeps);
+    diDrawable.RunSmokeDi(childDeps);
+
+    if (!ReferenceEquals(diGame.Service, diDrawable.ReadResolvedService())
+        || diDrawable.ReadResolvedToken() != "base-token"
+        || diDrawable.MissingOptional is not null
+        || !ReferenceEquals(diDrawable, childDeps.Get<DerivedSmokeDiDrawable>()))
+    {
+        throw new InvalidOperationException("Source-generated DI check failed under NativeAOT.");
+    }
+}
+
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
 
@@ -361,5 +380,68 @@ internal sealed class SceneBoxSpriteSmokeGame : Game
             spriteTexture?.Dispose();
 
         base.Dispose(disposing);
+    }
+}
+
+internal interface ISmokeDiService
+{
+    string Id { get; }
+}
+
+internal sealed class SmokeDiService : ISmokeDiService
+{
+    public string Id => "smoke";
+}
+
+internal interface ISmokeOptionalService
+{
+}
+
+internal sealed partial class SmokeDiGame : Game
+{
+    [Cached(typeof(ISmokeDiService))]
+    public SmokeDiService Service { get; } = new();
+
+    [Resolved]
+    private ISmokeDiService? ownService;
+
+    public void RunSmokeDi(DependencyCollection dependencies)
+    {
+        CacheDependencies(dependencies);
+        ResolveDependencies(dependencies);
+
+        if (!ReferenceEquals(Service, ownService))
+            throw new InvalidOperationException("Game self-resolved DI check failed under NativeAOT.");
+    }
+}
+
+internal partial class BaseSmokeDiDrawable : Drawable
+{
+    [Cached]
+    private readonly string baseToken = "base-token";
+
+    [Resolved]
+    private ISmokeDiService resolvedService = null!;
+
+    public ISmokeDiService ReadResolvedService() => resolvedService;
+}
+
+[Cached]
+internal sealed partial class DerivedSmokeDiDrawable : BaseSmokeDiDrawable
+{
+    [Resolved]
+    private string resolvedToken = null!;
+
+    [Resolved]
+    private ISmokeOptionalService? missingOptional { get; set; }
+
+    public string ReadResolvedToken() => resolvedToken;
+
+    public ISmokeOptionalService? MissingOptional => missingOptional;
+
+    public void RunSmokeDi(DependencyCollection dependencies)
+    {
+        CacheDependencies(dependencies);
+        ResolveDependencies(dependencies);
     }
 }
