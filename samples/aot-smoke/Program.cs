@@ -162,10 +162,14 @@ using (var smokeDrawable = new Drawable
 })
 {
     smokeDrawable.Clock = new FramedClock(new StopwatchClock(start: true));
+    var scheduledCallbackRan = false;
+    smokeDrawable.Schedule(() => scheduledCallbackRan = true);
     var screenCenter = smokeDrawable.ToScreenSpace(new Vector2(40f, 15f));
 
-    if (!smokeDrawable.Contains(screenCenter)
+    if (smokeDrawable.LoadState != LoadState.NotLoaded
+        || !smokeDrawable.Contains(screenCenter)
         || !smokeDrawable.UpdateSubTree()
+        || !scheduledCallbackRan
         || smokeDrawable.DrawColorInfo.Color.A <= 0f)
     {
         throw new InvalidOperationException("Drawable scene base check failed under NativeAOT.");
