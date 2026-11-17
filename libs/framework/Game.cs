@@ -1,4 +1,5 @@
 using System.Numerics;
+using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Platform;
@@ -109,6 +110,28 @@ public class Game : IDisposable
     }
 
     internal void InvokeExiting() => Exiting();
+
+    internal void InvokeCacheDependencies(DependencyCollection dependencies)
+        => CacheDependencies(dependencies);
+
+    internal void InvokeResolveDependencies(IReadOnlyDependencyCollection dependencies)
+        => ResolveDependencies(dependencies);
+
+    /// <summary>
+    /// Registers compile-time <c>[Cached]</c> dependencies into <paramref name="dependencies"/>.
+    /// Overridden by source-generated dependency injection hooks.
+    /// </summary>
+    protected virtual void CacheDependencies(DependencyCollection dependencies)
+    {
+    }
+
+    /// <summary>
+    /// Populates compile-time <c>[Resolved]</c> members from <paramref name="dependencies"/>.
+    /// Overridden by source-generated dependency injection hooks.
+    /// </summary>
+    protected virtual void ResolveDependencies(IReadOnlyDependencyCollection dependencies)
+    {
+    }
 
     /// <summary>
     /// Called once on the update thread after host storage, logging, SDL, and the window are initialized.

@@ -1,4 +1,5 @@
 using System.Numerics;
+using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Timing;
@@ -738,6 +739,28 @@ public class Drawable : IDisposable
         return new Vector2(
             RelativeSizeAxes.HasFlag(Axes.X) ? size.X * availableSize.X : size.X,
             RelativeSizeAxes.HasFlag(Axes.Y) ? size.Y * availableSize.Y : size.Y);
+    }
+
+    internal void InvokeCacheDependencies(DependencyCollection dependencies)
+        => CacheDependencies(dependencies);
+
+    internal void InvokeResolveDependencies(IReadOnlyDependencyCollection dependencies)
+        => ResolveDependencies(dependencies);
+
+    /// <summary>
+    /// Registers compile-time <c>[Cached]</c> dependencies into <paramref name="dependencies"/>.
+    /// Overridden by source-generated dependency injection hooks.
+    /// </summary>
+    protected virtual void CacheDependencies(DependencyCollection dependencies)
+    {
+    }
+
+    /// <summary>
+    /// Populates compile-time <c>[Resolved]</c> members from <paramref name="dependencies"/>.
+    /// Overridden by source-generated dependency injection hooks.
+    /// </summary>
+    protected virtual void ResolveDependencies(IReadOnlyDependencyCollection dependencies)
+    {
     }
 
     /// <summary>
