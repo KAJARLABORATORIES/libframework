@@ -14,7 +14,7 @@ namespace kajarlabs.Framework.Tests.Scene;
 public sealed partial class AsyncComponentLoadingTests
 {
     [Fact]
-    public async Task LoadComponentAsyncExecutesLoadOffUpdateThreadAndMarshalsCompletionViaScheduler()
+    public void LoadComponentAsyncExecutesLoadOffUpdateThreadAndMarshalsCompletionViaScheduler()
     {
         var ct = TestContext.Current.CancellationToken;
         var updateThreadId = Environment.CurrentManagedThreadId;
@@ -45,7 +45,7 @@ public sealed partial class AsyncComponentLoadingTests
 
         allowLoadFinish.Set();
 
-        var completed = await waitWhilePumpingAsync(parent, loadTask, ct);
+        var completed = pumpUntilCompleted(parent, loadTask, ct);
 
         Assert.Same(child, completed);
         Assert.Equal(updateThreadId, onLoadedThreadId);
@@ -59,7 +59,7 @@ public sealed partial class AsyncComponentLoadingTests
     }
 
     [Fact]
-    public async Task LoadComponentsAsyncLoadsBatchOffUpdateThreadAndPreservesOrder()
+    public void LoadComponentsAsyncLoadsBatchOffUpdateThreadAndPreservesOrder()
     {
         var ct = TestContext.Current.CancellationToken;
         var updateThreadId = Environment.CurrentManagedThreadId;
@@ -95,7 +95,7 @@ public sealed partial class AsyncComponentLoadingTests
 
         allowFirstFinish.Set();
 
-        var result = await waitWhilePumpingAsync(parent, batchTask, ct);
+        var result = pumpUntilCompleted(parent, batchTask, ct);
 
         Assert.Equal(updateThreadId, onLoadedThreadId);
         Assert.Equal(new[] { first, second, third }, result);
@@ -111,7 +111,7 @@ public sealed partial class AsyncComponentLoadingTests
             ct);
 
         Assert.False(emptyCallbackRan);
-        var emptyResult = await waitWhilePumpingAsync(parent, emptyTask, ct);
+        var emptyResult = pumpUntilCompleted(parent, emptyTask, ct);
         Assert.Empty(emptyResult);
         Assert.True(emptyCallbackRan);
     }
@@ -429,18 +429,19 @@ public sealed partial class AsyncComponentLoadingTests
         Assert.Equal(LoadState.Loaded, game.AsyncChild.LoadState);
     }
 
-    private static async Task<T> waitWhilePumpingAsync<T>(Container parent, Task<T> task, CancellationToken cancellationToken)
+    private static T pumpUntilCompleted<T>(Container parent, Task<T> task, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
 
         while (!task.IsCompleted)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for async load task while pumping UpdateSubTree.");
             parent.UpdateSubTree();
-            await Task.Delay(1, cancellationToken);
+            Thread.Sleep(1);
         }
 
-        return await task;
+        return task.GetAwaiter().GetResult();
     }
 
     public interface ITestService
