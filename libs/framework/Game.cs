@@ -60,6 +60,12 @@ public class Game : IDisposable
     public IRenderer Renderer => Host.Renderer;
 
     /// <summary>
+    /// Gets the root read-only dependency collection initialized for this game before <see cref="Load"/>,
+    /// or <see cref="DependencyCollection.EMPTY"/> before initialization.
+    /// </summary>
+    public IReadOnlyDependencyCollection Dependencies { get; private set; } = DependencyCollection.EMPTY;
+
+    /// <summary>
     /// Requests a clean shutdown of the host.
     /// </summary>
     public void Exit() => Host.Exit();
@@ -88,6 +94,26 @@ public class Game : IDisposable
         Root.Clock = Host.Threads.Update.Clock;
         Root.ProcessCustomClock = false;
         syncRootViewportSize();
+
+        if (Root.LoadState == LoadState.NotLoaded)
+        {
+            var rootDependencies = new DependencyCollection();
+            rootDependencies.Cache(this);
+            rootDependencies.Cache(Host);
+            rootDependencies.Cache(Renderer);
+            rootDependencies.Cache(Storage);
+            rootDependencies.Cache(LoggerFactory);
+
+            if (Window is { } window)
+                rootDependencies.Cache(window);
+
+            InvokeCacheDependencies(rootDependencies);
+            Dependencies = rootDependencies;
+            InvokeResolveDependencies(rootDependencies);
+
+            Root.Load(rootDependencies);
+        }
+
         Load();
     }
 
@@ -170,6 +196,7 @@ public class Game : IDisposable
             return;
 
         disposed = true;
+        Dependencies = DependencyCollection.EMPTY;
         Root.Dispose();
         drawNodeBuffer.Clear();
     }

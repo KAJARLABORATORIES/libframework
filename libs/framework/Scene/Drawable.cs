@@ -38,7 +38,9 @@ public class Drawable : IDisposable
     private IFrameBasedClock? customClock;
     private IFrameBasedClock? inheritedClock;
     private Scheduler? scheduler;
+    private Action? disposeListeners;
     private int loadState = (int)LoadState.NotLoaded;
+    private int isDisposed;
     private readonly DrawNode?[] drawNodes = new DrawNode?[3];
 
     private CacheFlags validCaches;
@@ -361,7 +363,13 @@ public class Drawable : IDisposable
     /// <summary>
     /// Gets a value indicating whether this drawable has been disposed.
     /// </summary>
-    public bool IsDisposed { get; private set; }
+    public bool IsDisposed => Volatile.Read(ref isDisposed) != 0;
+
+    /// <summary>
+    /// Gets the cancellation token associated with the currently executing <see cref="Load()"/> operation,
+    /// or <see cref="CancellationToken.None"/> when not loading asynchronously.
+    /// </summary>
+    protected CancellationToken LoadCancellationToken { get; private set; }
 
     /// <summary>
     /// Gets the current loading lifecycle state of this drawable.
@@ -752,9 +760,13 @@ public class Drawable : IDisposable
     internal long ChildID { get; set; }
 
     internal bool Load(IReadOnlyDependencyCollection parentDependencies)
+        => LoadCore(parentDependencies, CancellationToken.None);
+
+    internal bool LoadCore(IReadOnlyDependencyCollection parentDependencies, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(parentDependencies);
         ObjectDisposedException.ThrowIf(IsDisposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var previous = (LoadState)Interlocked.CompareExchange(ref loadState, (int)LoadState.Loading, (int)LoadState.NotLoaded);
 
@@ -764,8 +776,12 @@ public class Drawable : IDisposable
         if (previous != LoadState.NotLoaded)
             return false;
 
+        LoadCancellationToken = cancellationToken;
+
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var ownDependencies = new DependencyCollection(parentDependencies);
             InvokeCacheDependencies(ownDependencies);
 
@@ -775,28 +791,87 @@ public class Drawable : IDisposable
             InvokeResolveDependencies(effectiveDependencies);
             Load();
 
-            if (IsDisposed)
-                return false;
-
-            LoadChildren();
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (IsDisposed)
+            {
+                Dependencies = DependencyCollection.EMPTY;
+                Interlocked.CompareExchange(ref loadState, (int)LoadState.NotLoaded, (int)LoadState.Loading);
                 return false;
+            }
 
-            Volatile.Write(ref loadState, (int)LoadState.Ready);
-            Invalidate(Invalidation.DrawNode);
+            LoadChildren(cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (IsDisposed)
+            {
+                Dependencies = DependencyCollection.EMPTY;
+                Interlocked.CompareExchange(ref loadState, (int)LoadState.NotLoaded, (int)LoadState.Loading);
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref loadState, (int)LoadState.Ready, (int)LoadState.Loading) == (int)LoadState.Loading)
+                Invalidate(Invalidation.DrawNode);
+
             return true;
         }
         catch
         {
             Dependencies = DependencyCollection.EMPTY;
-            Volatile.Write(ref loadState, (int)LoadState.NotLoaded);
+            Interlocked.CompareExchange(ref loadState, (int)LoadState.NotLoaded, (int)LoadState.Loading);
             throw;
+        }
+        finally
+        {
+            LoadCancellationToken = CancellationToken.None;
         }
     }
 
-    internal virtual void LoadChildren()
+    internal virtual void LoadChildren(CancellationToken cancellationToken)
     {
+    }
+
+    internal bool RegisterDisposeCallback(Action callback)
+    {
+        while (true)
+        {
+            if (IsDisposed)
+            {
+                callback();
+                return false;
+            }
+
+            var current = Volatile.Read(ref disposeListeners);
+            var updated = (Action)Delegate.Combine(current, callback)!;
+
+            if (ReferenceEquals(Interlocked.CompareExchange(ref disposeListeners, updated, current), current))
+            {
+                if (IsDisposed)
+                {
+                    Interlocked.Exchange(ref disposeListeners, null)?.Invoke();
+                    return false;
+                }
+
+                return true;
+            }
+        }
+    }
+
+    internal void UnregisterDisposeCallback(Action callback)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref disposeListeners);
+
+            if (current is null)
+                return;
+
+            var updated = Delegate.Remove(current, callback) as Action;
+
+            if (ReferenceEquals(Interlocked.CompareExchange(ref disposeListeners, updated, current), current))
+                return;
+        }
     }
 
     internal virtual DrawNode? GenerateDrawNodeSubtree(int treeIndex, RectangleI? parentScissor = null)
@@ -951,10 +1026,10 @@ public class Drawable : IDisposable
     /// </summary>
     protected virtual void Dispose(bool disposing)
     {
-        if (!disposing || IsDisposed)
+        if (!disposing || Interlocked.Exchange(ref isDisposed, 1) != 0)
             return;
 
-        IsDisposed = true;
+        Interlocked.Exchange(ref disposeListeners, null)?.Invoke();
 
         if (scheduler is not null)
         {
