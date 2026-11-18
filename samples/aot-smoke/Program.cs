@@ -367,6 +367,28 @@ using (var phase4Host = new HeadlessGameHost())
     {
         throw new InvalidOperationException("ManualInputManager / PassThroughInputManager check failed under NativeAOT.");
     }
+
+    using var bindingManual = new ManualInputManager { Size = new Vector2(200f, 200f) };
+    using var bindingContainer = new KeyBindingContainer<SmokeBindingAction>(SimultaneousBindingMode.All)
+    {
+        RelativeSizeAxes = Axes.Both,
+        Size = Vector2.One,
+        KeyBindings =
+        [
+            new(new KeyCombination(InputKey.Control, Key.S), SmokeBindingAction.Save),
+        ],
+    };
+    using var bindingHandler = new SmokeBindingHandler();
+    bindingContainer.Add(bindingHandler);
+    bindingManual.Add(bindingContainer);
+
+    bindingManual.PressKey(Key.ControlLeft);
+    bindingManual.PressKey(Key.S);
+    bindingManual.ReleaseKey(Key.S);
+    bindingManual.ReleaseKey(Key.ControlLeft);
+
+    if (bindingHandler.PressedCount != 1 || bindingHandler.ReleasedCount != 1)
+        throw new InvalidOperationException("KeyBindingContainer<TAction> check failed under NativeAOT.");
 }
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
@@ -806,5 +828,34 @@ internal sealed class SmokeInteractiveControl : Drawable
     {
         TextInputs++;
         return true;
+    }
+}
+
+internal enum SmokeBindingAction
+{
+    Save,
+}
+
+internal sealed class SmokeBindingHandler : Drawable, IKeyBindingHandler<SmokeBindingAction>
+{
+    public int PressedCount { get; private set; }
+
+    public int ReleasedCount { get; private set; }
+
+    public bool OnPressed(KeyBindingPressEvent<SmokeBindingAction> e)
+    {
+        if (e.Action == SmokeBindingAction.Save)
+        {
+            PressedCount++;
+            return true;
+        }
+
+        return false;
+    }
+
+    public void OnReleased(KeyBindingReleaseEvent<SmokeBindingAction> e)
+    {
+        if (e.Action == SmokeBindingAction.Save)
+            ReleasedCount++;
     }
 }
