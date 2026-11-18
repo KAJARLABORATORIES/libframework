@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using kajarlabs.Framework;
 using kajarlabs.Framework.Bindables;
@@ -6,6 +7,7 @@ using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Graphics.Rendering.Vertices;
+using kajarlabs.Framework.Input;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
@@ -266,6 +268,47 @@ using (var phase4Host = new HeadlessGameHost())
         || phase4Game.BatchChildren.Any(c => c.LoadState != LoadState.Loaded))
     {
         throw new InvalidOperationException("Phase 4 DI, Bindable, and sync/async load lifecycle check failed under NativeAOT.");
+    }
+}
+
+{
+    if (RuntimeHelpers.IsReferenceOrContainsReferences<KeyboardState>()
+        || RuntimeHelpers.IsReferenceOrContainsReferences<MouseState>()
+        || RuntimeHelpers.IsReferenceOrContainsReferences<InputState>())
+    {
+        throw new InvalidOperationException("InputState snapshots must remain unmanaged-compatible value types under NativeAOT.");
+    }
+
+    var kb = KeyboardState.EMPTY.WithKeyDown(Key.ShiftLeft).WithKeyDown(Key.A);
+    var mouse = MouseState.EMPTY
+        .WithPosition(new Vector2(20f, 30f))
+        .WithPosition(new Vector2(25f, 40f))
+        .WithButtonDown(MouseButton.Left)
+        .WithScrollDelta(new Vector2(0f, 1f));
+    var inputState = new InputState(kb, mouse, windowHasFocus: true);
+
+    using var target = new Drawable
+    {
+        Position = new Vector2(10f, 10f),
+        Size = new Vector2(100f, 100f),
+    };
+
+    var click = new ClickEvent(inputState, MouseButton.Left, new Vector2(20f, 30f), target);
+    var keyDown = new KeyDownEvent(inputState, Key.A, repeat: false, target);
+    var textInput = new TextInputEvent(inputState, "A", target);
+    var focus = new FocusEvent(inputState, previousFocused: null, target: target);
+
+    if (!Key.ShiftLeft.IsModifier
+        || KeyModifiers.FromKey(Key.ShiftLeft) != KeyModifiers.Shift
+        || !inputState.Modifiers.HasShift
+        || !kb.IsKeyDown(Key.A)
+        || !mouse.IsButtonJustPressed(MouseButton.Left)
+        || click.MouseDownPosition != new Vector2(10f, 20f)
+        || keyDown.Key != Key.A
+        || textInput.Text != "A"
+        || !ReferenceEquals(focus.Target, target))
+    {
+        throw new InvalidOperationException("Input primitives and UIEvent check failed under NativeAOT.");
     }
 }
 
