@@ -1,6 +1,7 @@
 using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics.Rendering;
+using kajarlabs.Framework.Input;
 using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Scene;
@@ -18,6 +19,19 @@ public class Game : IDisposable
     private readonly List<PlatformInputEvent> frameInputEvents = [];
     private GameHost? host;
     private bool disposed;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Game"/> class.
+    /// </summary>
+    public Game()
+    {
+        InputManager.Add(Root);
+    }
+
+    /// <summary>
+    /// Gets the root <see cref="Input.InputManager"/> hosting <see cref="Root"/>.
+    /// </summary>
+    public InputManager InputManager { get; } = new();
 
     /// <summary>
     /// Gets the root scene <see cref="Container"/> updated on the update thread and rendered on the draw thread.
@@ -92,11 +106,11 @@ public class Game : IDisposable
 
     internal void InvokeLoad()
     {
-        Root.Clock = Host.Threads.Update.Clock;
-        Root.ProcessCustomClock = false;
+        InputManager.Clock = Host.Threads.Update.Clock;
+        InputManager.ProcessCustomClock = false;
         syncRootViewportSize();
 
-        if (Root.LoadState == LoadState.NotLoaded)
+        if (InputManager.LoadState == LoadState.NotLoaded)
         {
             var rootDependencies = new DependencyCollection();
             rootDependencies.Cache(this);
@@ -104,6 +118,7 @@ public class Game : IDisposable
             rootDependencies.Cache(Renderer);
             rootDependencies.Cache(Storage);
             rootDependencies.Cache(LoggerFactory);
+            rootDependencies.Cache(InputManager);
 
             if (Window is { } window)
                 rootDependencies.Cache(window);
@@ -112,7 +127,7 @@ public class Game : IDisposable
             Dependencies = rootDependencies;
             InvokeResolveDependencies(rootDependencies);
 
-            Root.Load(rootDependencies);
+            InputManager.Load(rootDependencies);
         }
 
         Load();
@@ -128,10 +143,11 @@ public class Game : IDisposable
             ProcessInputEvents(frameInputEvents);
 
         syncRootViewportSize();
+        InputManager.HandlePlatformInputEvents(frameInputEvents);
         Update();
-        Root.UpdateSubTree();
+        InputManager.UpdateSubTree();
 
-        var rootNode = Root.GenerateDrawNodeSubtree(drawNodeBuffer.WriteIndex);
+        var rootNode = InputManager.GenerateDrawNodeSubtree(drawNodeBuffer.WriteIndex);
         drawNodeBuffer.PublishWrite(rootNode);
     }
 
@@ -209,7 +225,7 @@ public class Game : IDisposable
 
         disposed = true;
         Dependencies = DependencyCollection.EMPTY;
-        Root.Dispose();
+        InputManager.Dispose();
         drawNodeBuffer.Clear();
     }
 
@@ -217,6 +233,9 @@ public class Game : IDisposable
     {
         var viewport = Renderer.Viewport;
         var targetSize = new Vector2(viewport.Width, viewport.Height);
+
+        if (InputManager.Size != targetSize)
+            InputManager.Size = targetSize;
 
         if (Root.Size != targetSize)
             Root.Size = targetSize;

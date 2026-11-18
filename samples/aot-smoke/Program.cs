@@ -347,6 +347,26 @@ using (var phase4Host = new HeadlessGameHost())
     {
         throw new InvalidOperationException("Drawable input traversal and masking check failed under NativeAOT.");
     }
+
+    using var manualInput = new ManualInputManager { Size = new Vector2(200f, 200f) };
+    using var passThrough = new PassThroughInputManager { Size = new Vector2(200f, 200f) };
+    using var smokeButton = new SmokeInteractiveControl { Size = new Vector2(80f, 80f) };
+    passThrough.Add(smokeButton);
+    manualInput.Add(passThrough);
+
+    manualInput.SetWindowFocus(true);
+    manualInput.Click(MouseButton.Left, new Vector2(40f, 40f));
+    manualInput.PressKey(Key.Enter);
+    manualInput.InputText("ok");
+
+    if (!smokeButton.IsHovered
+        || !smokeButton.HasFocus
+        || smokeButton.Clicks != 1
+        || smokeButton.Keys != 1
+        || smokeButton.TextInputs != 1)
+    {
+        throw new InvalidOperationException("ManualInputManager / PassThroughInputManager check failed under NativeAOT.");
+    }
 }
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
@@ -754,4 +774,37 @@ internal sealed class SmokeInputDrawable : Drawable
     public override bool AcceptsFocus => true;
 
     public override bool HandleNonPositionalInput => true;
+}
+
+internal sealed class SmokeInteractiveControl : Drawable
+{
+    public int Clicks { get; private set; }
+
+    public int Keys { get; private set; }
+
+    public int TextInputs { get; private set; }
+
+    public override bool AcceptsFocus => true;
+
+    protected override bool OnHover(HoverEvent e) => true;
+
+    protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+    protected override bool OnClick(ClickEvent e)
+    {
+        Clicks++;
+        return true;
+    }
+
+    protected override bool OnKeyDown(KeyDownEvent e)
+    {
+        Keys++;
+        return true;
+    }
+
+    protected override bool OnTextInput(TextInputEvent e)
+    {
+        TextInputs++;
+        return true;
+    }
 }
