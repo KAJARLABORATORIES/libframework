@@ -633,8 +633,23 @@ public sealed partial class GameHostTests : IDisposable
             height = 720;
         }
 
+        public bool GetWindowPixelSize(nint handle, out int width, out int height)
+        {
+            width = 1280;
+            height = 720;
+            return true;
+        }
+
         public void SetWindowSize(nint handle, int width, int height)
             => SizeUpdates.Enqueue((width, height, Environment.CurrentManagedThreadId));
+
+        public void StartTextInput(nint handle)
+        {
+        }
+
+        public void StopTextInput(nint handle)
+        {
+        }
 
         public bool PollEvent(out PlatformEvent platformEvent)
         {

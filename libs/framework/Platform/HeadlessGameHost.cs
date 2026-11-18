@@ -1,4 +1,6 @@
+using System.Numerics;
 using kajarlabs.Framework.Graphics.Rendering;
+using kajarlabs.Framework.Input;
 
 namespace kajarlabs.Framework.Platform;
 
@@ -59,6 +61,67 @@ public class HeadlessGameHost : GameHost
 
     /// <inheritdoc />
     protected override string? PreferredVideoDriver => "dummy";
+
+    /// <summary>
+    /// Enqueues a synthetic pointer motion event in <see cref="IRenderer.Viewport"/> coordinates.
+    /// </summary>
+    public void InjectMouseMove(Vector2 position, Vector2? delta = null)
+        => EnqueueInputEvent(PlatformInputEvent.MouseMotion(position, delta ?? Vector2.Zero));
+
+    /// <summary>
+    /// Enqueues a synthetic mouse button press event in <see cref="IRenderer.Viewport"/> coordinates.
+    /// </summary>
+    public void InjectMouseDown(MouseButton button, Vector2? position = null)
+        => EnqueueInputEvent(PlatformInputEvent.MouseButtonEvent(button, isDown: true, position));
+
+    /// <summary>
+    /// Enqueues a synthetic mouse button release event in <see cref="IRenderer.Viewport"/> coordinates.
+    /// </summary>
+    public void InjectMouseUp(MouseButton button, Vector2? position = null)
+        => EnqueueInputEvent(PlatformInputEvent.MouseButtonEvent(button, isDown: false, position));
+
+    /// <summary>
+    /// Enqueues a synthetic mouse wheel scroll event.
+    /// </summary>
+    public void InjectMouseScroll(Vector2 scrollDelta, Vector2? position = null, bool isPrecise = false)
+        => EnqueueInputEvent(PlatformInputEvent.MouseWheel(scrollDelta, position, isPrecise));
+
+    /// <summary>
+    /// Enqueues a synthetic keyboard key press event.
+    /// </summary>
+    public void InjectKeyDown(Key key, KeyModifiers modifiers = KeyModifiers.None, bool repeat = false)
+        => EnqueueInputEvent(PlatformInputEvent.KeyEvent(key, isDown: true, modifiers, repeat));
+
+    /// <summary>
+    /// Enqueues a synthetic keyboard key release event.
+    /// </summary>
+    public void InjectKeyUp(Key key, KeyModifiers modifiers = KeyModifiers.None)
+        => EnqueueInputEvent(PlatformInputEvent.KeyEvent(key, isDown: false, modifiers));
+
+    /// <summary>
+    /// Enqueues a synthetic UTF-8 text input event.
+    /// </summary>
+    public void InjectTextInput(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        if (text.Length == 0)
+            return;
+
+        EnqueueInputEvent(PlatformInputEvent.TextInput(text));
+    }
+
+    /// <summary>
+    /// Enqueues a synthetic window focus gained or lost event.
+    /// </summary>
+    public void InjectWindowFocus(bool hasFocus)
+        => EnqueueInputEvent(PlatformInputEvent.WindowFocus(hasFocus));
+
+    /// <summary>
+    /// Enqueues a synthetic window mouse-leave event.
+    /// </summary>
+    public void InjectWindowMouseLeave()
+        => EnqueueInputEvent(PlatformInputEvent.WindowMouseLeave());
 
     /// <summary>
     /// Runs the host for <paramref name="frameCount"/> update frames and then performs a clean shutdown.

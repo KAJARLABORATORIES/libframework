@@ -118,6 +118,16 @@ finally
 using (var headlessHost = new HeadlessGameHost())
 {
     var headlessGame = new HeadlessSmokeGame();
+    headlessHost.InjectWindowFocus(true);
+    headlessHost.InjectMouseMove(new Vector2(20f, 30f), new Vector2(5f, 5f));
+    headlessHost.InjectMouseDown(MouseButton.Left, new Vector2(20f, 30f));
+    headlessHost.InjectMouseUp(MouseButton.Left, new Vector2(20f, 30f));
+    headlessHost.InjectMouseScroll(new Vector2(0f, 1f), new Vector2(20f, 30f));
+    headlessHost.InjectKeyDown(Key.A, KeyModifiers.Shift);
+    headlessHost.InjectTextInput("A");
+    headlessHost.InjectKeyUp(Key.A, KeyModifiers.Shift);
+    headlessHost.InjectWindowMouseLeave();
+    headlessHost.InjectWindowFocus(false);
     headlessHost.RunFrames(headlessGame, 3);
 
     if (headlessGame.Updates != 3 || headlessHost.Window is not null || headlessGame.Draws == 0 || headlessHost.Renderer.Viewport.Width <= 0)
