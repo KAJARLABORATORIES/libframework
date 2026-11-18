@@ -320,6 +320,33 @@ using (var phase4Host = new HeadlessGameHost())
     {
         throw new InvalidOperationException("Input primitives and UIEvent check failed under NativeAOT.");
     }
+
+    using var maskedRoot = new Container
+    {
+        Size = new Vector2(50f, 50f),
+        Masking = true,
+    };
+    using var inputChild = new SmokeInputDrawable
+    {
+        Size = new Vector2(100f, 50f),
+    };
+    maskedRoot.Add(inputChild);
+
+    var posQueue = new List<Drawable>();
+    maskedRoot.BuildPositionalInputQueue(new Vector2(25f, 25f), posQueue);
+    var clippedQueue = new List<Drawable>();
+    maskedRoot.BuildPositionalInputQueue(new Vector2(75f, 25f), clippedQueue);
+    var nonPosQueue = new List<Drawable>();
+    maskedRoot.BuildNonPositionalInputQueue(nonPosQueue);
+
+    if (posQueue.Count != 1
+        || !ReferenceEquals(posQueue[0], inputChild)
+        || clippedQueue.Count != 0
+        || nonPosQueue.Count != 1
+        || !ReferenceEquals(nonPosQueue[0], inputChild))
+    {
+        throw new InvalidOperationException("Drawable input traversal and masking check failed under NativeAOT.");
+    }
 }
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
@@ -720,4 +747,11 @@ internal sealed partial class Phase4AsyncChild : Box
 
         base.Dispose(disposing);
     }
+}
+
+internal sealed class SmokeInputDrawable : Drawable
+{
+    public override bool AcceptsFocus => true;
+
+    public override bool HandleNonPositionalInput => true;
 }

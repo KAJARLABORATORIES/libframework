@@ -115,6 +115,49 @@ public class CompositeDrawable : Drawable
         }
     }
 
+    /// <inheritdoc />
+    public override bool BuildPositionalInputQueue(Vector2 screenSpacePosition, List<Drawable> queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+
+        if (IsDisposed || LoadState == LoadState.Loading || !IsPresent)
+            return false;
+
+        var receiveInput = ReceivePositionalInputAt(screenSpacePosition);
+
+        if (Masking && !receiveInput)
+            return false;
+
+        EnsureChildrenSorted();
+
+        for (var i = internalChildren.Count - 1; i >= 0; i--)
+            internalChildren[i].BuildPositionalInputQueue(screenSpacePosition, queue);
+
+        if (HandlePositionalInput && receiveInput)
+            queue.Add(this);
+
+        return true;
+    }
+
+    /// <inheritdoc />
+    public override bool BuildNonPositionalInputQueue(List<Drawable> queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+
+        if (IsDisposed || LoadState == LoadState.Loading || !IsPresent)
+            return false;
+
+        EnsureChildrenSorted();
+
+        for (var i = internalChildren.Count - 1; i >= 0; i--)
+            internalChildren[i].BuildNonPositionalInputQueue(queue);
+
+        if (HandleNonPositionalInput)
+            queue.Add(this);
+
+        return true;
+    }
+
     /// <summary>
     /// Computes the integer screen-space scissor rectangle enclosing this composite's <see cref="Drawable.ScreenSpaceDrawQuad"/>.
     /// </summary>
