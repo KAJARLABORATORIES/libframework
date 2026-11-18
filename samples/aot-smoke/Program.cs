@@ -391,6 +391,33 @@ using (var phase4Host = new HeadlessGameHost())
         throw new InvalidOperationException("KeyBindingContainer<TAction> check failed under NativeAOT.");
 }
 
+using (var phase5Host = new HeadlessGameHost())
+{
+    using var phase5Game = new Phase5InputSmokeGame(phase5Host);
+    phase5Host.RunFrames(phase5Game, 7);
+
+    if (!ReferenceEquals(phase5Game.InputManager, phase5Game.ResolvedInputManager)
+        || !ReferenceEquals(phase5Game.InputManager, phase5Game.RotatedTarget.ResolvedInputManager)
+        || phase5Game.RotatedTarget.Clicks != 1
+        || phase5Game.ClippedOverflowTarget.Clicks != 0
+        || phase5Game.DragTarget.DragStarts != 1
+        || phase5Game.DragTarget.DragEnds != 1
+        || phase5Game.DragTarget.Scrolls != 1
+        || phase5Game.PassThroughTarget.Clicks != 1
+        || phase5Game.RotatedTarget.FocusLosses != 1
+        || !phase5Game.TextTarget.HasFocus
+        || phase5Game.TextTarget.ReceivedText != "aot"
+        || phase5Game.ActionHandler.ResetPressed != 1
+        || phase5Game.ActionHandler.ResetReleased != 1
+        || phase5Game.ActionHandler.TabPressed != 1
+        || phase5Game.ActionHandler.TabReleased != 1
+        || phase5Game.ActionHandler.ZoomPressed != 1
+        || phase5Game.ActionHandler.ZoomReleased != 1)
+    {
+        throw new InvalidOperationException("Phase 5 end-to-end HeadlessGameHost input pipeline check failed under NativeAOT.");
+    }
+}
+
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
 return 0;
 
@@ -857,5 +884,281 @@ internal sealed class SmokeBindingHandler : Drawable, IKeyBindingHandler<SmokeBi
     {
         if (e.Action == SmokeBindingAction.Save)
             ReleasedCount++;
+    }
+}
+
+internal enum Phase5SmokeAction
+{
+    Reset,
+    CycleFocus,
+    ZoomIn,
+}
+
+internal sealed partial class Phase5InputSmokeGame : Game
+{
+    private readonly HeadlessGameHost headlessHost;
+    private int frame;
+
+    public Phase5InputSmokeGame(HeadlessGameHost headlessHost)
+    {
+        this.headlessHost = headlessHost;
+    }
+
+    [Resolved]
+    public InputManager ResolvedInputManager { get; private set; } = null!;
+
+    public Phase5SmokeControl RotatedTarget { get; } = new()
+    {
+        Position = new Vector2(10f, 10f),
+        Size = new Vector2(60f, 60f),
+    };
+
+    public Phase5SmokeControl ClippedOverflowTarget { get; } = new()
+    {
+        Position = new Vector2(180f, 10f),
+        Size = new Vector2(100f, 60f),
+    };
+
+    public Phase5SmokeControl DragTarget { get; } = new()
+    {
+        Position = new Vector2(260f, 40f),
+        Size = new Vector2(100f, 80f),
+        AllowDrag = true,
+    };
+
+    public Phase5SmokeControl TextTarget { get; } = new()
+    {
+        Position = new Vector2(260f, 150f),
+        Size = new Vector2(120f, 60f),
+        RequestsTextInputFlag = true,
+    };
+
+    public Phase5SmokeControl PassThroughTarget { get; } = new()
+    {
+        Position = new Vector2(10f, 10f),
+        Size = new Vector2(80f, 60f),
+    };
+
+    public Phase5ActionHandler ActionHandler { get; } = new()
+    {
+        RelativeSizeAxes = Axes.Both,
+        Size = Vector2.One,
+    };
+
+    protected override void Load()
+    {
+        var bindings = new KeyBindingContainer<Phase5SmokeAction>(SimultaneousBindingMode.All)
+        {
+            RelativeSizeAxes = Axes.Both,
+            Size = Vector2.One,
+            KeyBindings =
+            [
+                new(new KeyCombination(InputKey.Control, Key.R), Phase5SmokeAction.Reset),
+                new(new KeyCombination(Key.Tab), Phase5SmokeAction.CycleFocus),
+                new(new KeyCombination(InputKey.Control, InputKey.MouseWheelUp), Phase5SmokeAction.ZoomIn),
+            ],
+        };
+
+        var maskedPanel = new Container
+        {
+            Position = new Vector2(20f, 20f),
+            Size = new Vector2(200f, 200f),
+            Masking = true,
+        };
+
+        var rotatedGroup = new Container
+        {
+            Anchor = Anchor.Centre,
+            Origin = Anchor.Centre,
+            Size = new Vector2(120f, 120f),
+            Rotation = 45f,
+        };
+
+        rotatedGroup.Add(RotatedTarget);
+        maskedPanel.AddRange([rotatedGroup, ClippedOverflowTarget]);
+
+        var passThrough = new PassThroughInputManager
+        {
+            Position = new Vector2(400f, 40f),
+            Size = new Vector2(120f, 100f),
+        };
+
+        passThrough.Add(PassThroughTarget);
+        bindings.AddRange([maskedPanel, DragTarget, TextTarget, passThrough, ActionHandler]);
+        Root.Add(bindings);
+    }
+
+    protected override void Update()
+    {
+        frame++;
+
+        switch (frame)
+        {
+            case 1:
+            {
+                var rotatedCenter = RotatedTarget.ToScreenSpace(new Vector2(30f, 30f));
+                headlessHost.InjectWindowFocus(true);
+                headlessHost.InjectMouseMove(rotatedCenter);
+                headlessHost.InjectMouseDown(MouseButton.Left, rotatedCenter);
+                headlessHost.InjectMouseUp(MouseButton.Left, rotatedCenter);
+
+                // Clipped overflow region outside maskedPanel (x=250 is past 20+200=220).
+                headlessHost.InjectMouseDown(MouseButton.Left, new Vector2(250f, 50f));
+                headlessHost.InjectMouseUp(MouseButton.Left, new Vector2(250f, 50f));
+                break;
+            }
+
+            case 2:
+                // Drag & scroll on DragTarget ([260..360, 40..120]).
+                headlessHost.InjectMouseScroll(new Vector2(0f, -1f), new Vector2(300f, 80f));
+                headlessHost.InjectMouseDown(MouseButton.Left, new Vector2(300f, 80f));
+                headlessHost.InjectMouseMove(new Vector2(330f, 80f));
+                break;
+
+            case 3:
+                headlessHost.InjectMouseMove(new Vector2(360f, 95f));
+                headlessHost.InjectMouseUp(MouseButton.Left, new Vector2(360f, 95f));
+                break;
+
+            case 4:
+                // Click PassThroughTarget inside nested PassThroughInputManager ([410..490, 50..110]).
+                headlessHost.InjectMouseMove(new Vector2(440f, 70f));
+                headlessHost.InjectMouseDown(MouseButton.Left, new Vector2(440f, 70f));
+                headlessHost.InjectMouseUp(MouseButton.Left, new Vector2(440f, 70f));
+                break;
+
+            case 5:
+                // Switch focus to TextTarget, send text and exercise key bindings (chord, single, positional scroll).
+                InputManager.ChangeFocus(TextTarget);
+                headlessHost.InjectTextInput("aot");
+                headlessHost.InjectKeyDown(Key.Tab);
+                headlessHost.InjectKeyUp(Key.Tab);
+                headlessHost.InjectKeyDown(Key.ControlLeft, KeyModifiers.Control);
+                headlessHost.InjectKeyDown(Key.R, KeyModifiers.Control);
+                headlessHost.InjectMouseScroll(new Vector2(0f, 1f), new Vector2(300f, 180f));
+                headlessHost.InjectKeyUp(Key.R, KeyModifiers.Control);
+                headlessHost.InjectKeyUp(Key.ControlLeft);
+                break;
+        }
+    }
+}
+
+internal sealed partial class Phase5SmokeControl : Drawable
+{
+    [Resolved]
+    public InputManager ResolvedInputManager { get; private set; } = null!;
+
+    public bool AllowDrag { get; init; }
+
+    public bool RequestsTextInputFlag { get; init; }
+
+    public int Clicks { get; private set; }
+
+    public int DragStarts { get; private set; }
+
+    public int DragEnds { get; private set; }
+
+    public int Scrolls { get; private set; }
+
+    public int FocusLosses { get; private set; }
+
+    public string ReceivedText { get; private set; } = string.Empty;
+
+    public override bool AcceptsFocus => true;
+
+    public override bool RequestsTextInput => RequestsTextInputFlag;
+
+    protected override bool OnHover(HoverEvent e) => true;
+
+    protected override bool OnMouseDown(MouseDownEvent e) => e.Button == MouseButton.Left;
+
+    protected override bool OnClick(ClickEvent e)
+    {
+        Clicks++;
+        return true;
+    }
+
+    protected override bool OnDragStart(DragStartEvent e)
+    {
+        if (!AllowDrag || e.Button != MouseButton.Left)
+            return false;
+
+        DragStarts++;
+        return true;
+    }
+
+    protected override bool OnDrag(DragEvent e) => AllowDrag;
+
+    protected override void OnDragEnd(DragEndEvent e) => DragEnds++;
+
+    protected override bool OnScroll(ScrollEvent e)
+    {
+        if (e.CurrentState.Modifiers.HasControl)
+            return false;
+
+        Scrolls++;
+        return true;
+    }
+
+    protected override void OnFocusLost(FocusLostEvent e) => FocusLosses++;
+
+    protected override bool OnTextInput(TextInputEvent e)
+    {
+        ReceivedText += e.Text;
+        return true;
+    }
+}
+
+internal sealed class Phase5ActionHandler : Drawable, IKeyBindingHandler<Phase5SmokeAction>
+{
+    public int ResetPressed { get; private set; }
+
+    public int ResetReleased { get; private set; }
+
+    public int TabPressed { get; private set; }
+
+    public int TabReleased { get; private set; }
+
+    public int ZoomPressed { get; private set; }
+
+    public int ZoomReleased { get; private set; }
+
+    public bool OnPressed(KeyBindingPressEvent<Phase5SmokeAction> e)
+    {
+        switch (e.Action)
+        {
+            case Phase5SmokeAction.Reset:
+                ResetPressed++;
+                return true;
+
+            case Phase5SmokeAction.CycleFocus:
+                TabPressed++;
+                return true;
+
+            case Phase5SmokeAction.ZoomIn:
+                ZoomPressed++;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    public void OnReleased(KeyBindingReleaseEvent<Phase5SmokeAction> e)
+    {
+        switch (e.Action)
+        {
+            case Phase5SmokeAction.Reset:
+                ResetReleased++;
+                break;
+
+            case Phase5SmokeAction.CycleFocus:
+                TabReleased++;
+                break;
+
+            case Phase5SmokeAction.ZoomIn:
+                ZoomReleased++;
+                break;
+        }
     }
 }
