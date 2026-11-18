@@ -1,6 +1,7 @@
 using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
+using kajarlabs.Framework.Input;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
@@ -599,6 +600,47 @@ public class Drawable : IDisposable
     } = Scene.DrawColorInfo.WHITE;
 
     /// <summary>
+    /// Gets a value indicating whether this drawable can acquire keyboard input focus.
+    /// </summary>
+    public virtual bool AcceptsFocus => false;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable requests focus when focus contention is evaluated.
+    /// </summary>
+    public virtual bool RequestsFocus => false;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable requests window-level text input while focused.
+    /// </summary>
+    public virtual bool RequestsTextInput => false;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable currently holds keyboard input focus.
+    /// </summary>
+    public bool HasFocus { get; internal set; }
+
+    /// <summary>
+    /// Gets a value indicating whether the pointer is currently hovering over this drawable.
+    /// </summary>
+    public bool IsHovered { get; internal set; }
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable is currently the active drag target.
+    /// </summary>
+    public bool IsDragged { get; internal set; }
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable participates in positional input queues.
+    /// Defaults to <see cref="AcceptsFocus"/>.
+    /// </summary>
+    public virtual bool HandlePositionalInput => AcceptsFocus;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable participates in non-positional input queues.
+    /// </summary>
+    public virtual bool HandleNonPositionalInput => false;
+
+    /// <summary>
     /// Gets the size available to children inside this drawable.
     /// </summary>
     protected internal virtual Vector2 ChildSize => DrawSize;
@@ -675,6 +717,47 @@ public class Drawable : IDisposable
     /// </summary>
     public virtual bool Contains(Vector2 screenSpacePosition)
         => TryToLocalSpace(screenSpacePosition, out var localPosition) && DrawRectangle.Contains(localPosition);
+
+    /// <summary>
+    /// Determines whether this drawable receives positional input at <paramref name="screenSpacePosition"/>.
+    /// Defaults to <see cref="Contains"/>.
+    /// </summary>
+    public virtual bool ReceivePositionalInputAt(Vector2 screenSpacePosition) => Contains(screenSpacePosition);
+
+    /// <summary>
+    /// Appends this drawable to <paramref name="queue"/> if it is active, present, handles positional input,
+    /// and passes <see cref="ReceivePositionalInputAt"/>.
+    /// </summary>
+    /// <returns><see langword="true"/> if this subtree was eligible for traversal; otherwise <see langword="false"/>.</returns>
+    public virtual bool BuildPositionalInputQueue(Vector2 screenSpacePosition, List<Drawable> queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+
+        if (IsDisposed || LoadState == LoadState.Loading || !IsPresent)
+            return false;
+
+        if (HandlePositionalInput && ReceivePositionalInputAt(screenSpacePosition))
+            queue.Add(this);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Appends this drawable to <paramref name="queue"/> if it is active, present, and handles non-positional input.
+    /// </summary>
+    /// <returns><see langword="true"/> if this subtree was eligible for traversal; otherwise <see langword="false"/>.</returns>
+    public virtual bool BuildNonPositionalInputQueue(List<Drawable> queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+
+        if (IsDisposed || LoadState == LoadState.Loading || !IsPresent)
+            return false;
+
+        if (HandleNonPositionalInput)
+            queue.Add(this);
+
+        return true;
+    }
 
     /// <summary>
     /// Schedules <paramref name="action"/> to execute on the update thread during the next <see cref="UpdateSubTree"/> pass.
@@ -959,6 +1042,152 @@ public class Drawable : IDisposable
     {
     }
 
+    internal bool TriggerEvent(UIEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        e.Target = this;
+        return Handle(e);
+    }
+
+    /// <summary>
+    /// Dispatches <paramref name="e"/> to the corresponding typed event handler on this drawable.
+    /// </summary>
+    /// <returns><see langword="true"/> if the event was consumed and should stop propagating; otherwise <see langword="false"/>.</returns>
+    protected virtual bool Handle(UIEvent e)
+    {
+        switch (e)
+        {
+            case HoverEvent hover:
+                return OnHover(hover);
+            case HoverLostEvent hoverLost:
+                OnHoverLost(hoverLost);
+                return false;
+            case MouseMoveEvent mouseMove:
+                return OnMouseMove(mouseMove);
+            case MouseDownEvent mouseDown:
+                return OnMouseDown(mouseDown);
+            case MouseUpEvent mouseUp:
+                return OnMouseUp(mouseUp);
+            case ClickEvent click:
+                return OnClick(click);
+            case DoubleClickEvent doubleClick:
+                return OnDoubleClick(doubleClick);
+            case DragStartEvent dragStart:
+                return OnDragStart(dragStart);
+            case DragEvent drag:
+                return OnDrag(drag);
+            case DragEndEvent dragEnd:
+                OnDragEnd(dragEnd);
+                return false;
+            case ScrollEvent scroll:
+                return OnScroll(scroll);
+            case KeyDownEvent keyDown:
+                return OnKeyDown(keyDown);
+            case KeyUpEvent keyUp:
+                return OnKeyUp(keyUp);
+            case TextInputEvent textInput:
+                return OnTextInput(textInput);
+            case FocusEvent focus:
+                OnFocus(focus);
+                return false;
+            case FocusLostEvent focusLost:
+                OnFocusLost(focusLost);
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Invoked when the pointer enters or hovers over this drawable.
+    /// </summary>
+    /// <returns><see langword="true"/> to consume hover and block drawables behind this one.</returns>
+    protected virtual bool OnHover(HoverEvent e) => false;
+
+    /// <summary>
+    /// Invoked when this drawable ceases to be hovered.
+    /// </summary>
+    protected virtual void OnHoverLost(HoverLostEvent e)
+    {
+    }
+
+    /// <summary>
+    /// Invoked when the pointer moves over this drawable.
+    /// </summary>
+    protected virtual bool OnMouseMove(MouseMoveEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a mouse button is pressed over this drawable.
+    /// </summary>
+    protected virtual bool OnMouseDown(MouseDownEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a mouse button captured by this drawable is released.
+    /// </summary>
+    protected virtual bool OnMouseUp(MouseUpEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a press and release complete over this drawable without dragging.
+    /// </summary>
+    protected virtual bool OnClick(ClickEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a double-click completes over this drawable.
+    /// </summary>
+    protected virtual bool OnDoubleClick(DoubleClickEvent e) => false;
+
+    /// <summary>
+    /// Invoked when pointer movement while a button is held exceeds the drag threshold.
+    /// </summary>
+    /// <returns><see langword="true"/> to accept the drag operation.</returns>
+    protected virtual bool OnDragStart(DragStartEvent e) => false;
+
+    /// <summary>
+    /// Invoked while this drawable is being dragged.
+    /// </summary>
+    protected virtual bool OnDrag(DragEvent e) => false;
+
+    /// <summary>
+    /// Invoked when an active drag operation on this drawable finishes.
+    /// </summary>
+    protected virtual void OnDragEnd(DragEndEvent e)
+    {
+    }
+
+    /// <summary>
+    /// Invoked when the scroll wheel moves over this drawable.
+    /// </summary>
+    protected virtual bool OnScroll(ScrollEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a keyboard key is pressed or repeats while this drawable is focused or in the non-positional queue.
+    /// </summary>
+    protected virtual bool OnKeyDown(KeyDownEvent e) => false;
+
+    /// <summary>
+    /// Invoked when a keyboard key is released.
+    /// </summary>
+    protected virtual bool OnKeyUp(KeyUpEvent e) => false;
+
+    /// <summary>
+    /// Invoked when committed UTF-8 text input is delivered.
+    /// </summary>
+    protected virtual bool OnTextInput(TextInputEvent e) => false;
+
+    /// <summary>
+    /// Invoked when this drawable acquires keyboard input focus.
+    /// </summary>
+    protected virtual void OnFocus(FocusEvent e)
+    {
+    }
+
+    /// <summary>
+    /// Invoked when this drawable loses keyboard input focus.
+    /// </summary>
+    protected virtual void OnFocusLost(FocusLostEvent e)
+    {
+    }
+
     /// <summary>
     /// Performs initialization logic during component loading after dependencies have been cached and resolved.
     /// </summary>
@@ -1039,6 +1268,9 @@ public class Drawable : IDisposable
 
         Dependencies = DependencyCollection.EMPTY;
         Parent = null;
+        HasFocus = false;
+        IsHovered = false;
+        IsDragged = false;
         customClock = null;
         inheritedClock = null;
         Array.Clear(drawNodes);
