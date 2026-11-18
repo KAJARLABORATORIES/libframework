@@ -15,6 +15,7 @@ namespace kajarlabs.Framework;
 public class Game : IDisposable
 {
     private readonly TripleBuffer<DrawNode?> drawNodeBuffer = new();
+    private readonly List<PlatformInputEvent> frameInputEvents = [];
     private GameHost? host;
     private bool disposed;
 
@@ -117,14 +118,25 @@ public class Game : IDisposable
         Load();
     }
 
+    internal IReadOnlyList<PlatformInputEvent> CurrentFrameInputEvents => frameInputEvents;
+
     internal void InvokeUpdate()
     {
+        frameInputEvents.Clear();
+
+        if (host is { } attachedHost && attachedHost.DrainInputEvents(frameInputEvents) > 0)
+            ProcessInputEvents(frameInputEvents);
+
         syncRootViewportSize();
         Update();
         Root.UpdateSubTree();
 
         var rootNode = Root.GenerateDrawNodeSubtree(drawNodeBuffer.WriteIndex);
         drawNodeBuffer.PublishWrite(rootNode);
+    }
+
+    internal virtual void ProcessInputEvents(IReadOnlyList<PlatformInputEvent> events)
+    {
     }
 
     internal void InvokeDraw()

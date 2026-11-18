@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.ExceptionServices;
 using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
@@ -23,8 +24,11 @@ public partial class GameHost : IDisposable
     private readonly HostUpdateThread updateThread;
     private readonly HostDrawThread drawThread;
     private readonly Lock lifecycleLock = new();
+    private readonly Lock inputQueueLock = new();
     private readonly ManualResetEventSlim runStoppedSignal = new(true);
 
+    private List<PlatformInputEvent> pendingInputEvents = [];
+    private List<PlatformInputEvent> swapInputEvents = [];
     private IHostRenderer activeRenderer;
     private Game? activeGame;
     private Exception? unhandledThreadException;
@@ -398,6 +402,40 @@ public partial class GameHost : IDisposable
     internal void ForwardResize(int width, int height)
         => Volatile.Read(ref activeRenderer).Resize(width, height);
 
+    internal void EnqueueInputEvent(in PlatformInputEvent inputEvent)
+    {
+        lock (inputQueueLock)
+            pendingInputEvents.Add(inputEvent);
+    }
+
+    internal int DrainInputEvents(List<PlatformInputEvent> destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        List<PlatformInputEvent> batch;
+
+        lock (inputQueueLock)
+        {
+            if (pendingInputEvents.Count == 0)
+                return 0;
+
+            batch = pendingInputEvents;
+            pendingInputEvents = swapInputEvents;
+            swapInputEvents = batch;
+        }
+
+        destination.AddRange(batch);
+        var count = batch.Count;
+        batch.Clear();
+        return count;
+    }
+
+    private void discardPendingInputEvents()
+    {
+        lock (inputQueueLock)
+            pendingInputEvents.Clear();
+    }
+
     private void onWindowResized(int width, int height)
         => Volatile.Read(ref activeRenderer).Resize(width, height);
 
@@ -418,7 +456,10 @@ public partial class GameHost : IDisposable
 
                 case PlatformEventType.WindowPixelSizeChanged:
                     if (Window is { } pixelWindow && platformEvent.WindowId == pixelWindow.Id)
+                    {
+                        pixelWindow.ProcessEvent(in platformEvent);
                         Volatile.Read(ref activeRenderer).Resize(platformEvent.Data1, platformEvent.Data2);
+                    }
                     break;
 
                 case PlatformEventType.WindowMinimized:
@@ -431,11 +472,84 @@ public partial class GameHost : IDisposable
                         Volatile.Read(ref activeRenderer).RefreshSurface();
                     break;
 
+                case PlatformEventType.WindowFocusGained:
+                case PlatformEventType.WindowFocusLost:
+                case PlatformEventType.WindowMouseEnter:
+                case PlatformEventType.WindowMouseLeave:
+                    pumpWindowInputStateEvent(in platformEvent);
+                    break;
+
+                case PlatformEventType.MouseMotion:
+                case PlatformEventType.MouseButtonDown:
+                case PlatformEventType.MouseButtonUp:
+                case PlatformEventType.MouseWheel:
+                    pumpPointerEvent(in platformEvent);
+                    break;
+
+                case PlatformEventType.KeyDown:
+                case PlatformEventType.KeyUp:
+                    if (isTargetedAtActiveWindow(platformEvent.WindowId))
+                    {
+                        var keyInput = platformEvent.Input;
+                        EnqueueInputEvent(in keyInput);
+                    }
+                    break;
+
+                case PlatformEventType.TextInput:
+                    if (isTargetedAtActiveWindow(platformEvent.WindowId)
+                        && !string.IsNullOrEmpty(platformEvent.Input.Text))
+                    {
+                        var textInput = platformEvent.Input;
+                        EnqueueInputEvent(in textInput);
+                    }
+                    break;
+
                 default:
                     Window?.ProcessEvent(in platformEvent);
                     break;
             }
         }
+    }
+
+    private bool isTargetedAtActiveWindow(uint windowId)
+        => Window is not { } window || windowId == window.Id;
+
+    private void pumpWindowInputStateEvent(in PlatformEvent platformEvent)
+    {
+        if (Window is { } window)
+        {
+            if (platformEvent.WindowId != window.Id)
+                return;
+
+            window.ProcessEvent(in platformEvent);
+        }
+
+        var inputEvent = platformEvent.Type switch
+        {
+            PlatformEventType.WindowFocusGained => PlatformInputEvent.WindowFocus(true),
+            PlatformEventType.WindowFocusLost => PlatformInputEvent.WindowFocus(false),
+            PlatformEventType.WindowMouseEnter => PlatformInputEvent.WindowMouseEnter(),
+            PlatformEventType.WindowMouseLeave => PlatformInputEvent.WindowMouseLeave(),
+            _ => platformEvent.Input,
+        };
+
+        EnqueueInputEvent(in inputEvent);
+    }
+
+    private void pumpPointerEvent(in PlatformEvent platformEvent)
+    {
+        var scale = Vector2.One;
+
+        if (Window is { } window)
+        {
+            if (platformEvent.WindowId != window.Id)
+                return;
+
+            scale = window.GetViewportScale();
+        }
+
+        var scaledEvent = platformEvent.Input.WithScaledPointer(scale);
+        EnqueueInputEvent(in scaledEvent);
     }
 
     private void onThreadException(GameThread thread, Exception exception)
@@ -524,7 +638,11 @@ public partial class GameHost : IDisposable
             if (host.IsExitRequested)
                 return;
 
-            host.activeGame?.InvokeUpdate();
+            if (host.activeGame is { } game)
+                game.InvokeUpdate();
+            else
+                host.discardPendingInputEvents();
+
             host.OnUpdateFrame();
         }
     }
