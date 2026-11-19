@@ -462,6 +462,8 @@ public sealed class GameHostInputTests : IDisposable
 
         public bool PollEvent(out PlatformEvent platformEvent) => events.TryDequeue(out platformEvent);
 
+        public IDisposable AddEventWatch(PlatformEventWatchCallback callback) => new NoopDisposable();
+
         private sealed class NoopDisposable : IDisposable
         {
             public void Dispose()

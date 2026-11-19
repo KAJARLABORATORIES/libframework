@@ -357,6 +357,36 @@ public sealed class GpuDeviceContextTests
         Assert.False(backend.UseAfterFreeDetected);
     }
 
+    [Fact]
+    public void ReentrantPresentLatestFrameReturnsFalseWithoutCorruptingSlots()
+    {
+        var backend = new FakeGpuBackend
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+        using var loggerProvider = new CapturingLoggerProvider();
+        using var context = new GpuDeviceContext(backend, loggerProvider.CreateLogger("GpuTest"));
+
+        context.Initialize(fake_window);
+
+        Assert.True(context.BeginOffscreenFrame(out var frame));
+        context.EndOffscreenFrame(in frame);
+
+        var reentrantResult = true;
+        backend.OnBlitTexture = () => reentrantResult = context.PresentLatestFrame();
+
+        Assert.True(context.PresentLatestFrame());
+        Assert.False(reentrantResult);
+        Assert.Equal(1, backend.BlitCount);
+
+        backend.OnBlitTexture = null;
+        Assert.True(context.BeginOffscreenFrame(out var nextFrame));
+        context.EndOffscreenFrame(in nextFrame);
+        Assert.True(context.PresentLatestFrame());
+        Assert.Equal(2, backend.BlitCount);
+    }
+
     private sealed class FakeGpuBackend : StubGpuBackend
     {
         private readonly Lock sync = new();
@@ -379,6 +409,7 @@ public sealed class GpuDeviceContextTests
         public bool Minimized { get; set; }
         public bool ReturnNullSwapchainTexture { get; set; }
         public bool AutoSignalFences { get; init; } = true;
+        public Action? OnBlitTexture { get; set; }
 
         public int BlitCount { get; private set; }
         public int CancelCommandBufferCount { get; private set; }
@@ -623,6 +654,8 @@ public sealed class GpuDeviceContextTests
                 LastBlitSourceWidth = sourceWidth;
                 LastBlitSourceHeight = sourceHeight;
             }
+
+            OnBlitTexture?.Invoke();
         }
 
         public override bool QueryFence(nint device, nint fence)

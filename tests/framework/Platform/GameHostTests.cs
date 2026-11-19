@@ -429,6 +429,257 @@ public sealed partial class GameHostTests : IDisposable
         Assert.Same(game, game.Child.ResolvedGame);
     }
 
+    [Fact]
+    public void EventWatchRegistersAfterRendererInitAndUnregistersBeforeShutdown()
+    {
+        var eventsLog = new ConcurrentQueue<string>();
+        var platformBackend = new FakePlatformBackend(eventsLog);
+        var gpuBackend = new FakeGpuBackend(eventsLog)
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        host.Run(new ImmediateExitGame());
+
+        var ordered = eventsLog.ToArray();
+        var createWindowIdx = Array.IndexOf(ordered, "CreateWindow");
+        var claimWindowIdx = Array.IndexOf(ordered, "ClaimWindow");
+        var addWatchIdx = Array.IndexOf(ordered, "AddEventWatch");
+        var removeWatchIdx = Array.IndexOf(ordered, "RemoveEventWatch");
+        var waitForIdleIdx = Array.IndexOf(ordered, "WaitForIdle");
+        var destroyDeviceIdx = Array.IndexOf(ordered, "DestroyDevice");
+        var destroyWindowIdx = Array.IndexOf(ordered, "DestroyWindow");
+
+        Assert.True(createWindowIdx >= 0);
+        Assert.True(claimWindowIdx > createWindowIdx);
+        Assert.True(addWatchIdx > claimWindowIdx);
+        Assert.True(removeWatchIdx > addWatchIdx);
+        Assert.True(waitForIdleIdx > removeWatchIdx);
+        Assert.True(destroyDeviceIdx > waitForIdleIdx);
+        Assert.True(destroyWindowIdx > destroyDeviceIdx);
+    }
+
+    [Fact]
+    public void ModalResizeAndExposeWatchPresentsLiveFramesWhilePollEventIsBlocked()
+    {
+        var mainThreadId = Environment.CurrentManagedThreadId;
+        var platformBackend = new FakePlatformBackend();
+        var gpuBackend = new FakeGpuBackend
+        {
+            PixelWidth = 640,
+            PixelHeight = 480,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var modalEntered = false;
+        var modalCompleted = false;
+        var blitsDuringModal = 0;
+
+        platformBackend.OnPollEvent = watch =>
+        {
+            if (modalEntered || watch is null || gpuBackend.ClearThreadIds.IsEmpty)
+                return false;
+
+            modalEntered = true;
+            var blitsBeforeModal = gpuBackend.BlitCount;
+
+            // Simulate OS modal resize + expose loop synchronously on InputThread without returning from PollEvent.
+            gpuBackend.PixelWidth = 1024;
+            gpuBackend.PixelHeight = 768;
+            var resizeEvent = new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId, 1024, 768);
+            watch(in resizeEvent);
+
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+
+            while (DateTime.UtcNow < deadline)
+            {
+                var exposeEvent = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
+                watch(in exposeEvent);
+
+                if (gpuBackend.LastBlitSourceWidth == 1024 && gpuBackend.LastBlitSourceHeight == 768)
+                {
+                    blitsDuringModal = gpuBackend.BlitCount - blitsBeforeModal;
+                    modalCompleted = true;
+                    break;
+                }
+
+                Thread.Sleep(1);
+            }
+
+            host.Exit();
+            return false;
+        };
+
+        var game = new CallbackGame();
+        host.Run(game);
+
+        Assert.True(modalEntered);
+        Assert.True(modalCompleted);
+        Assert.True(blitsDuringModal >= 1);
+        Assert.Equal(1024u, gpuBackend.LastBlitSourceWidth);
+        Assert.Equal(768u, gpuBackend.LastBlitSourceHeight);
+        Assert.Equal(new Viewport(1024, 768), host.Renderer.Viewport);
+        Assert.NotEmpty(gpuBackend.PresentThreadIds);
+        Assert.All(gpuBackend.PresentThreadIds, id => Assert.Equal(mainThreadId, id));
+    }
+
+    [Fact]
+    public void EventWatchIgnoresForeignWindowIdsAndOffThreadCallbacks()
+    {
+        var platformBackend = new FakePlatformBackend();
+        var gpuBackend = new FakeGpuBackend
+        {
+            PixelWidth = 640,
+            PixelHeight = 480,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var checkedWatch = false;
+        var blitsObservedAfterInvalidWatch = 0;
+
+        platformBackend.OnPollEvent = watch =>
+        {
+            if (checkedWatch || watch is null || gpuBackend.ClearThreadIds.IsEmpty)
+                return false;
+
+            checkedWatch = true;
+            var blitsBefore = gpuBackend.BlitCount;
+
+            // Foreign window ID on InputThread must be ignored.
+            var foreignResize = new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId + 999, 1920, 1080);
+            var foreignExpose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId + 999, Data1: 1);
+            watch(in foreignResize);
+            watch(in foreignExpose);
+
+            // Matching window ID invoked from a non-InputThread must be ignored.
+            var offThreadResize = new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId, 1920, 1080);
+            var offThreadExpose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
+            Task.Run(() =>
+            {
+                watch(in offThreadResize);
+                watch(in offThreadExpose);
+            }).GetAwaiter().GetResult();
+
+            blitsObservedAfterInvalidWatch = gpuBackend.BlitCount - blitsBefore;
+            host.Exit();
+            return false;
+        };
+
+        host.Run(new CallbackGame());
+
+        Assert.True(checkedWatch);
+        Assert.Equal(0, blitsObservedAfterInvalidWatch);
+        Assert.Equal(new Viewport(640, 480), host.Renderer.Viewport);
+    }
+
+    [Fact]
+    public void ReentrantEventWatchDuringPresentIsIgnoredWithoutDeadlock()
+    {
+        var platformBackend = new FakePlatformBackend();
+        var gpuBackend = new FakeGpuBackend
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var reentrantAttempted = false;
+        var watchTriggered = false;
+
+        gpuBackend.OnBlitTexture = () =>
+        {
+            if (!watchTriggered || reentrantAttempted)
+                return;
+
+            reentrantAttempted = true;
+            var nestedResize = new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId, 320, 240);
+            var nestedExpose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
+            platformBackend.EmitWatchEvent(in nestedResize);
+            platformBackend.EmitWatchEvent(in nestedExpose);
+        };
+
+        platformBackend.OnPollEvent = watch =>
+        {
+            if (watchTriggered || watch is null || gpuBackend.ClearThreadIds.IsEmpty)
+                return false;
+
+            watchTriggered = true;
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+
+            while (!reentrantAttempted && DateTime.UtcNow < deadline)
+            {
+                var expose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
+                watch(in expose);
+                Thread.Sleep(1);
+            }
+
+            host.Exit();
+            return false;
+        };
+
+        host.Run(new CallbackGame());
+
+        Assert.True(reentrantAttempted);
+        Assert.Equal(new Viewport(800, 600), host.Renderer.Viewport);
+    }
+
+    [Fact]
+    public void ExceptionInEventWatchDoesNotEscapeCallbackAndStopsHostCleanly()
+    {
+        var platformBackend = new FakePlatformBackend();
+        var gpuBackend = new FakeGpuBackend
+        {
+            PixelWidth = 800,
+            PixelHeight = 600,
+        };
+
+        using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
+        var callbackThrew = false;
+        var triggered = false;
+        var shouldThrowOnBlit = false;
+
+        gpuBackend.OnBlitTexture = () =>
+        {
+            if (shouldThrowOnBlit)
+                throw new InvalidOperationException("watch-present-boom");
+        };
+
+        platformBackend.OnPollEvent = watch =>
+        {
+            if (triggered || watch is null || gpuBackend.ClearThreadIds.IsEmpty)
+                return false;
+
+            triggered = true;
+            shouldThrowOnBlit = true;
+
+            try
+            {
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+
+                while (!host.IsExitRequested && DateTime.UtcNow < deadline)
+                {
+                    var expose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
+                    watch(in expose);
+                    Thread.Sleep(1);
+                }
+            }
+            catch
+            {
+                callbackThrew = true;
+            }
+
+            return false;
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => host.Run(new CallbackGame()));
+
+        Assert.False(callbackThrew);
+        Assert.Equal("watch-present-boom", ex.Message);
+        Assert.False(host.IsRunning);
+    }
+
     private static string readAllTextShared(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -568,6 +819,7 @@ public sealed partial class GameHostTests : IDisposable
         private readonly ConcurrentQueue<PlatformEvent> events = new();
         private readonly ConcurrentQueue<string>? sharedEvents;
         private FakeLogRouter? activeRouter;
+        private PlatformEventWatchCallback? activeEventWatch;
 
         public FakePlatformBackend(ConcurrentQueue<string>? sharedEvents = null)
         {
@@ -584,8 +836,12 @@ public sealed partial class GameHostTests : IDisposable
         public uint CreatedWindowId { get; private set; } = 42;
         public bool ThrowOnCreateWindow { get; set; }
         public Action<FakeLogRouter?>? OnInitializeVideo { get; set; }
+        public Func<PlatformEventWatchCallback?, bool>? OnPollEvent { get; set; }
 
         public void EnqueueEvent(PlatformEvent platformEvent) => events.Enqueue(platformEvent);
+
+        public void EmitWatchEvent(in PlatformEvent platformEvent)
+            => Volatile.Read(ref activeEventWatch)?.Invoke(in platformEvent);
 
         public IDisposable InstallLogRouter(ILoggerFactory loggerFactory)
         {
@@ -654,7 +910,21 @@ public sealed partial class GameHostTests : IDisposable
         public bool PollEvent(out PlatformEvent platformEvent)
         {
             PollEventThreadIds.Enqueue(Environment.CurrentManagedThreadId);
+
+            if (OnPollEvent is { } hook && hook(Volatile.Read(ref activeEventWatch)))
+            {
+                platformEvent = default;
+                return false;
+            }
+
             return events.TryDequeue(out platformEvent);
+        }
+
+        public IDisposable AddEventWatch(PlatformEventWatchCallback callback)
+        {
+            Volatile.Write(ref activeEventWatch, callback);
+            sharedEvents?.Enqueue("AddEventWatch");
+            return new EventWatchToken(this, callback);
         }
 
         public sealed class FakeLogRouter(FakePlatformBackend owner, ILoggerFactory loggerFactory) : IDisposable
@@ -666,6 +936,28 @@ public sealed partial class GameHostTests : IDisposable
             {
                 owner.activeRouter = null;
                 owner.LifecycleCalls.Add("DisposeLogRouter");
+            }
+        }
+
+        private sealed class EventWatchToken : IDisposable
+        {
+            private readonly FakePlatformBackend owner;
+            private readonly PlatformEventWatchCallback callback;
+            private int disposed;
+
+            public EventWatchToken(FakePlatformBackend owner, PlatformEventWatchCallback callback)
+            {
+                this.owner = owner;
+                this.callback = callback;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref disposed, 1) != 0)
+                    return;
+
+                Interlocked.CompareExchange(ref owner.activeEventWatch, null, callback);
+                owner.sharedEvents?.Enqueue("RemoveEventWatch");
             }
         }
 
@@ -693,6 +985,7 @@ public sealed partial class GameHostTests : IDisposable
         public uint LastBlitSourceWidth { get; private set; }
         public uint LastBlitSourceHeight { get; private set; }
         public Color4 LastClearColor { get; private set; }
+        public Action? OnBlitTexture { get; set; }
         public ConcurrentQueue<int> PresentThreadIds { get; } = new();
         public ConcurrentQueue<int> ClearThreadIds { get; } = new();
 
@@ -745,6 +1038,8 @@ public sealed partial class GameHostTests : IDisposable
                 LastBlitSourceWidth = sourceWidth;
                 LastBlitSourceHeight = sourceHeight;
             }
+
+            OnBlitTexture?.Invoke();
         }
 
         public override bool WaitForIdle(nint device)

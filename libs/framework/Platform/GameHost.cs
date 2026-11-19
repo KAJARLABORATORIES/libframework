@@ -26,15 +26,18 @@ public partial class GameHost : IDisposable
     private readonly Lock lifecycleLock = new();
     private readonly Lock inputQueueLock = new();
     private readonly ManualResetEventSlim runStoppedSignal = new(true);
+    private readonly PlatformEventWatchCallback eventWatchCallback;
 
     private List<PlatformInputEvent> pendingInputEvents = [];
     private List<PlatformInputEvent> swapInputEvents = [];
     private IHostRenderer activeRenderer;
+    private IDisposable? eventWatch;
     private Game? activeGame;
     private Exception? unhandledThreadException;
     private int runThreadId = -1;
     private int exitRequested;
     private int exitingNotified;
+    private int inEventWatch;
     private bool isRunning;
     private bool disposed;
 
@@ -61,6 +64,7 @@ public partial class GameHost : IDisposable
 
         this.backend = backend;
         this.gpuBackend = gpuBackend;
+        eventWatchCallback = onPlatformEventWatch;
         activeRenderer = new NullRenderer(Options.WindowWidth, Options.WindowHeight);
 
         var userDataPath = UserDataLocation.Resolve(Options.Organization, Options.Application, Options.UserDataPath);
@@ -358,6 +362,8 @@ public partial class GameHost : IDisposable
         }
         finally
         {
+            unregisterEventWatch();
+
             if (Window is { } window)
                 window.Resized -= onWindowResized;
 
@@ -438,6 +444,51 @@ public partial class GameHost : IDisposable
 
     private void onWindowResized(int width, int height)
         => Volatile.Read(ref activeRenderer).Resize(width, height);
+
+    private void registerEventWatch()
+    {
+        var registration = backend.AddEventWatch(eventWatchCallback);
+        Interlocked.Exchange(ref eventWatch, registration)?.Dispose();
+    }
+
+    private void unregisterEventWatch()
+        => Interlocked.Exchange(ref eventWatch, null)?.Dispose();
+
+    private void onPlatformEventWatch(in PlatformEvent platformEvent)
+    {
+        if (IsExitRequested || Volatile.Read(ref disposed) || !inputThread.IsCurrentThread)
+            return;
+
+        if (Window is not { } window || platformEvent.WindowId != window.Id)
+            return;
+
+        if (Interlocked.CompareExchange(ref inEventWatch, 1, 0) != 0)
+            return;
+
+        try
+        {
+            switch (platformEvent.Type)
+            {
+                case PlatformEventType.WindowPixelSizeChanged:
+                    Volatile.Read(ref activeRenderer).Resize(platformEvent.Data1, platformEvent.Data2);
+                    break;
+
+                case PlatformEventType.WindowExposed:
+                    Volatile.Read(ref activeRenderer).Present();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never allow managed exceptions to unwind across native SDL/OS modal loop frames.
+            onThreadException(inputThread, ex);
+            Exit();
+        }
+        finally
+        {
+            Volatile.Write(ref inEventWatch, 0);
+        }
+    }
 
     private void pumpEvents()
     {
@@ -598,6 +649,7 @@ public partial class GameHost : IDisposable
                 window.Create(host.Options.Resizable);
                 window.Resized += host.onWindowResized;
                 Volatile.Read(ref host.activeRenderer).Initialize(window.Handle);
+                host.registerEventWatch();
             }
         }
 
@@ -610,6 +662,8 @@ public partial class GameHost : IDisposable
 
         protected override void OnExit()
         {
+            host.unregisterEventWatch();
+
             if (host.Window is { } window)
                 window.Resized -= host.onWindowResized;
 
