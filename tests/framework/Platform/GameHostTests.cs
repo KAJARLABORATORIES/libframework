@@ -528,6 +528,7 @@ public sealed partial class GameHostTests : IDisposable
     [Fact]
     public void EventWatchIgnoresForeignWindowIdsAndOffThreadCallbacks()
     {
+        var mainThreadId = Environment.CurrentManagedThreadId;
         var platformBackend = new FakePlatformBackend();
         var gpuBackend = new FakeGpuBackend
         {
@@ -538,6 +539,7 @@ public sealed partial class GameHostTests : IDisposable
         using var host = new GameHost(createTestOptions(), platformBackend, gpuBackend);
         var checkedWatch = false;
         var blitsObservedAfterInvalidWatch = 0;
+        var offThreadId = mainThreadId;
 
         platformBackend.OnPollEvent = watch =>
         {
@@ -553,14 +555,20 @@ public sealed partial class GameHostTests : IDisposable
             watch(in foreignResize);
             watch(in foreignExpose);
 
-            // Matching window ID invoked from a non-InputThread must be ignored.
+            // Matching window ID invoked from a dedicated non-InputThread must be ignored.
             var offThreadResize = new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, platformBackend.CreatedWindowId, 1920, 1080);
             var offThreadExpose = new PlatformEvent(PlatformEventType.WindowExposed, platformBackend.CreatedWindowId, Data1: 1);
-            Task.Run(() =>
+            var offThread = new Thread(() =>
             {
+                offThreadId = Environment.CurrentManagedThreadId;
                 watch(in offThreadResize);
                 watch(in offThreadExpose);
-            }).GetAwaiter().GetResult();
+            })
+            {
+                IsBackground = true,
+            };
+            offThread.Start();
+            Assert.True(offThread.Join(TimeSpan.FromSeconds(5)));
 
             blitsObservedAfterInvalidWatch = gpuBackend.BlitCount - blitsBefore;
             host.Exit();
@@ -570,6 +578,7 @@ public sealed partial class GameHostTests : IDisposable
         host.Run(new CallbackGame());
 
         Assert.True(checkedWatch);
+        Assert.NotEqual(mainThreadId, offThreadId);
         Assert.Equal(0, blitsObservedAfterInvalidWatch);
         Assert.Equal(new Viewport(640, 480), host.Renderer.Viewport);
     }
