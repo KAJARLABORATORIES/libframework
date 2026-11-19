@@ -18,7 +18,7 @@ A lean, extensible 2D game framework for .NET.
 `kajarlabs.Framework` is built around predictable low-allocation performance, first-class NativeAOT compatibility, and clean cross-platform abstractions on top of .NET and SDL3.
 
 - **NativeAOT & trimming first** — libraries are `IsAotCompatible` with compile-time source generation (`[Cached]`/`[Resolved]` DI, `[LoggerMessage]`) instead of runtime reflection.
-- **Clean native boundaries** — cross-platform windowing, input, and SDL GPU rendering (Vulkan, Direct3D 12, Metal) stay strictly internal so no `SDL3` types leak into the public API.
+- **Cross-platform SDL3 & GPU rendering** — windowing and hardware-accelerated rendering across Vulkan, Direct3D 12, and Metal behind a managed .NET API.
 - **Composable scene & testing** — hierarchical 2D scene graph (`Drawable`, `Container`, `Box`, `Sprite`), reactive bindables, unified input/key bindings, and deterministic headless testing via `HeadlessGameHost`.
 
 ## Requirements
