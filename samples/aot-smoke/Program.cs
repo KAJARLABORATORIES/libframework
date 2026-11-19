@@ -431,12 +431,48 @@ internal sealed class SmokeGame : Game
     public bool Loaded { get; private set; }
     public bool SawWindow { get; private set; }
     public bool SawRenderer { get; private set; }
+    private bool pushedWatchEvents;
 
     protected override void Load()
     {
         Loaded = true;
         SawWindow = Window?.IsCreated == true;
         SawRenderer = Renderer is IRenderer && Renderer.Viewport.Width > 0;
+    }
+
+    protected override void Update()
+    {
+        if (!pushedWatchEvents)
+        {
+            pushedWatchEvents = true;
+
+            var resizeEvent = new SDL.Event
+            {
+                Type = (uint)SDL.EventType.WindowPixelSizeChanged,
+                Window = new SDL.WindowEvent
+                {
+                    Type = SDL.EventType.WindowPixelSizeChanged,
+                    WindowID = 1,
+                    Data1 = 800,
+                    Data2 = 600,
+                },
+            };
+            SDL.PushEvent(ref resizeEvent);
+
+            var exposeEvent = new SDL.Event
+            {
+                Type = (uint)SDL.EventType.WindowExposed,
+                Window = new SDL.WindowEvent
+                {
+                    Type = SDL.EventType.WindowExposed,
+                    WindowID = 1,
+                    Data1 = 1,
+                },
+            };
+            SDL.PushEvent(ref exposeEvent);
+            return;
+        }
+
         Exit();
     }
 }

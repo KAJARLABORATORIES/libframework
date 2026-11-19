@@ -22,7 +22,10 @@ internal enum PlatformEventType
     KeyDown = 15,
     KeyUp = 16,
     TextInput = 17,
+    WindowExposed = 18,
 }
+
+internal delegate void PlatformEventWatchCallback(in PlatformEvent platformEvent);
 
 internal readonly record struct PlatformEvent(
     PlatformEventType Type,
@@ -58,4 +61,6 @@ internal interface IPlatformBackend
     void StopTextInput(nint handle);
 
     bool PollEvent(out PlatformEvent platformEvent);
+
+    IDisposable AddEventWatch(PlatformEventWatchCallback callback);
 }

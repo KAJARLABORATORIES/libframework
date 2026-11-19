@@ -107,6 +107,12 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
         return true;
     }
 
+    public IDisposable AddEventWatch(PlatformEventWatchCallback callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        return new EventWatchRegistration(callback);
+    }
+
     internal static PlatformEvent TranslateSdlEvent(in SDL.Event sdlEvent)
         => (SDL.EventType)sdlEvent.Type switch
         {
@@ -114,6 +120,11 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
             SDL.EventType.WindowCloseRequested => new PlatformEvent(
                 PlatformEventType.WindowCloseRequested,
                 sdlEvent.Window.WindowID),
+            SDL.EventType.WindowExposed => new PlatformEvent(
+                PlatformEventType.WindowExposed,
+                sdlEvent.Window.WindowID,
+                sdlEvent.Window.Data1,
+                sdlEvent.Window.Data2),
             SDL.EventType.WindowResized => new PlatformEvent(
                 PlatformEventType.WindowResized,
                 sdlEvent.Window.WindowID,
@@ -464,6 +475,49 @@ internal sealed class SdlPlatformBackend : IPlatformBackend
 
         _ => Key.Unknown,
     };
+
+    private sealed class EventWatchRegistration : IDisposable
+    {
+        private readonly PlatformEventWatchCallback callback;
+        private readonly SDL.EventFilter filter;
+        private int disposed;
+
+        public EventWatchRegistration(PlatformEventWatchCallback callback)
+        {
+            this.callback = callback;
+
+            // Keep a strong reference to the delegate so GC cannot collect it while SDL holds the function pointer.
+            filter = onSdlEvent;
+
+            if (!SDL.AddEventWatch(filter, nint.Zero))
+                throw new InvalidOperationException($"SDL event watch registration failed: {SDL.GetError()}");
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+                return;
+
+            SDL.RemoveEventWatch(filter, nint.Zero);
+        }
+
+        private bool onSdlEvent(nint userdata, ref SDL.Event sdlEvent)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+                return true;
+
+            switch ((SDL.EventType)sdlEvent.Type)
+            {
+                case SDL.EventType.WindowExposed:
+                case SDL.EventType.WindowPixelSizeChanged:
+                    var translated = TranslateSdlEvent(in sdlEvent);
+                    callback(in translated);
+                    break;
+            }
+
+            return true;
+        }
+    }
 
     private sealed class VideoSession : IDisposable
     {

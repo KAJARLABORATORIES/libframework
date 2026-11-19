@@ -298,4 +298,27 @@ public sealed class SdlPlatformBackendInputTests
         Assert.Equal(19u, translated.WindowId);
         Assert.Equal(expectedInputType, translated.Input.Type);
     }
+
+    [Fact]
+    public void TranslatesWindowExposedEvent()
+    {
+        var sdlEvent = new SDL.Event
+        {
+            Type = (uint)SDL.EventType.WindowExposed,
+            Window = new SDL.WindowEvent
+            {
+                Type = SDL.EventType.WindowExposed,
+                WindowID = 23,
+                Data1 = 1,
+                Data2 = 0,
+            },
+        };
+
+        var translated = SdlPlatformBackend.TranslateSdlEvent(in sdlEvent);
+
+        Assert.Equal(PlatformEventType.WindowExposed, translated.Type);
+        Assert.Equal(23u, translated.WindowId);
+        Assert.Equal(1, translated.Data1);
+        Assert.Equal(0, translated.Data2);
+    }
 }

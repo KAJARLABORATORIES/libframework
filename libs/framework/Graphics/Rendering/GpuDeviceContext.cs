@@ -25,6 +25,7 @@ internal sealed partial class GpuDeviceContext : IDisposable
     private int targetHeight;
     private bool isMinimized;
     private bool loggedInactiveSurface;
+    private int presenting;
     private int shutdownStarted;
 
     public GpuDeviceContext(IGpuBackend backend, ILogger logger)
@@ -386,6 +387,21 @@ internal sealed partial class GpuDeviceContext : IDisposable
     /// Must be called on the window-creating thread (<c>InputThread</c>).
     /// </summary>
     public bool PresentLatestFrame()
+    {
+        if (Interlocked.CompareExchange(ref presenting, 1, 0) != 0)
+            return false;
+
+        try
+        {
+            return presentLatestFrameCore();
+        }
+        finally
+        {
+            Volatile.Write(ref presenting, 0);
+        }
+    }
+
+    private bool presentLatestFrameCore()
     {
         nint currentDevice;
         nint currentWindow;

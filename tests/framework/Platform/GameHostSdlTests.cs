@@ -45,6 +45,78 @@ public sealed class GameHostSdlTests : IDisposable
         Assert.Contains("GameHost stopped", content);
     }
 
+    [Fact]
+    public void RealSdlEventWatchReceivesWindowExposeAndPixelSizeChangedAndUnregistersOnDispose()
+    {
+        using var videoSession = SdlPlatformBackend.INSTANCE.InitializeVideo("dummy");
+        var received = new List<PlatformEvent>();
+
+        using (var watch = SdlPlatformBackend.INSTANCE.AddEventWatch((in PlatformEvent e) => received.Add(e)))
+        {
+            var resizeEvent = new SDL.Event
+            {
+                Type = (uint)SDL.EventType.WindowPixelSizeChanged,
+                Window = new SDL.WindowEvent
+                {
+                    Type = SDL.EventType.WindowPixelSizeChanged,
+                    WindowID = 7,
+                    Data1 = 1024,
+                    Data2 = 768,
+                },
+            };
+            Assert.True(SDL.PushEvent(ref resizeEvent));
+
+            var exposeEvent = new SDL.Event
+            {
+                Type = (uint)SDL.EventType.WindowExposed,
+                Window = new SDL.WindowEvent
+                {
+                    Type = SDL.EventType.WindowExposed,
+                    WindowID = 7,
+                    Data1 = 1,
+                },
+            };
+            Assert.True(SDL.PushEvent(ref exposeEvent));
+
+            var mouseEvent = new SDL.Event
+            {
+                Type = (uint)SDL.EventType.MouseMotion,
+                Motion = new SDL.MouseMotionEvent
+                {
+                    Type = SDL.EventType.MouseMotion,
+                    WindowID = 7,
+                },
+            };
+            Assert.True(SDL.PushEvent(ref mouseEvent));
+        }
+
+        // After disposing watch, subsequent pushed events must not invoke the callback.
+        var afterDisposeEvent = new SDL.Event
+        {
+            Type = (uint)SDL.EventType.WindowExposed,
+            Window = new SDL.WindowEvent
+            {
+                Type = SDL.EventType.WindowExposed,
+                WindowID = 7,
+                Data1 = 1,
+            },
+        };
+        Assert.True(SDL.PushEvent(ref afterDisposeEvent));
+
+        while (SdlPlatformBackend.INSTANCE.PollEvent(out _))
+        {
+        }
+
+        Assert.Equal(2, received.Count);
+        Assert.Equal(PlatformEventType.WindowPixelSizeChanged, received[0].Type);
+        Assert.Equal(7u, received[0].WindowId);
+        Assert.Equal(1024, received[0].Data1);
+        Assert.Equal(768, received[0].Data2);
+        Assert.Equal(PlatformEventType.WindowExposed, received[1].Type);
+        Assert.Equal(7u, received[1].WindowId);
+        Assert.Equal(1, received[1].Data1);
+    }
+
     private static string readAllTextShared(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
