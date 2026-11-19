@@ -1,0 +1,6 @@
+{
+  "name": "roslyn-navigator",
+  "displayName": "Roslyn Navigator",
+  "version": "1.0.0",
+  "description": "Workspace-scoped cwm-roslyn-navigator MCP server preconfigured for kajar-framework.slnx."
+}

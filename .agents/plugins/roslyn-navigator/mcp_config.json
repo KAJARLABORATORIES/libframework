@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "libframework-roslyn": {
+      "command": "cwm-roslyn-navigator",
+      "args": ["--solution", "kajar-framework.slnx"],
+      "cwd": "../../.."
+    }
+  }
+}
