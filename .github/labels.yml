@@ -46,6 +46,9 @@
 - name: area:scene
   color: 'bfd4f2'
   description: Drawables, containers, layout
+- name: area:transforms
+  color: 'bfd4f2'
+  description: Animations, easing, and transform sequences
 - name: area:input
   color: 'bfd4f2'
   description: Input handling and propagation
