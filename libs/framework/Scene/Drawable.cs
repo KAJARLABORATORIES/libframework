@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Graphics;
@@ -39,6 +40,7 @@ public class Drawable : IDisposable
     private IFrameBasedClock? customClock;
     private IFrameBasedClock? inheritedClock;
     private Scheduler? scheduler;
+    private object? extensions;
     private Action? disposeListeners;
     private int loadState = (int)LoadState.NotLoaded;
     private int isDisposed;
@@ -352,9 +354,62 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
-    /// Gets a value indicating whether this drawable is considered present (<see cref="Alpha"/> &gt; 0 or <see cref="AlwaysPresent"/>).
+    /// Gets or sets the clock time in milliseconds at which this drawable becomes alive.
+    /// Defaults to <see cref="double.MinValue"/>.
     /// </summary>
-    public virtual bool IsPresent => Alpha > 0f || AlwaysPresent;
+    public double LifetimeStart
+    {
+        get => field;
+        set
+        {
+            if (double.IsNaN(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LifetimeStart cannot be NaN.");
+
+            if (field == value)
+                return;
+
+            field = value;
+            SyncIsAlive();
+        }
+    } = double.MinValue;
+
+    /// <summary>
+    /// Gets or sets the clock time in milliseconds at which this drawable expires and is no longer alive.
+    /// Defaults to <see cref="double.MaxValue"/>.
+    /// </summary>
+    public double LifetimeEnd
+    {
+        get => field;
+        set
+        {
+            if (double.IsNaN(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LifetimeEnd cannot be NaN.");
+
+            if (field == value)
+                return;
+
+            field = value;
+            SyncIsAlive();
+        }
+    } = double.MaxValue;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable is currently within <c>[LifetimeStart, LifetimeEnd)</c>.
+    /// </summary>
+    public bool IsAlive { get; private set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a parent <see cref="CompositeDrawable"/> automatically removes and
+    /// disposes this drawable once <see cref="Time"/> reaches or exceeds <see cref="LifetimeEnd"/>.
+    /// Defaults to <see langword="true"/>.
+    /// </summary>
+    public virtual bool RemoveWhenNotAlive { get; set; } = true;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable is considered present (<see cref="IsAlive"/> and either
+    /// <see cref="Alpha"/> &gt; 0 or <see cref="AlwaysPresent"/>).
+    /// </summary>
+    public virtual bool IsPresent => IsAlive && (Alpha > 0f || AlwaysPresent);
 
     /// <summary>
     /// Gets the parent <see cref="Drawable"/> containing this drawable, or <see langword="null"/> if unattached.
@@ -760,6 +815,11 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
+    /// Marks this drawable as expired at the current <see cref="Time"/> by setting <see cref="LifetimeEnd"/> to <see cref="Time"/>.
+    /// </summary>
+    public void Expire() => LifetimeEnd = Time;
+
+    /// <summary>
     /// Schedules <paramref name="action"/> to execute on the update thread during the next <see cref="UpdateSubTree"/> pass.
     /// </summary>
     public ScheduledDelegate Schedule(Action action)
@@ -791,6 +851,101 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
+    /// Gets an existing attached extension of type <typeparamref name="TExtension"/>, or creates and attaches one via <paramref name="factory"/>.
+    /// </summary>
+    /// <typeparam name="TExtension">The concrete <see cref="IDrawableExtension"/> type.</typeparam>
+    /// <param name="factory">Factory invoked at most once when no extension of type <typeparamref name="TExtension"/> is attached.</param>
+    /// <returns>The attached extension instance.</returns>
+    public TExtension GetOrAddExtension<TExtension>(Func<Drawable, TExtension> factory)
+        where TExtension : class, IDrawableExtension
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+        if (tryGetExtensionCore<TExtension>(out var existing))
+            return existing;
+
+        var created = factory(this);
+        ArgumentNullException.ThrowIfNull(created);
+
+        if (IsDisposed)
+        {
+            created.OnDispose(this);
+            throw new ObjectDisposedException(GetType().FullName);
+        }
+
+        if (tryGetExtensionCore<TExtension>(out existing))
+        {
+            created.OnDispose(this);
+            return existing;
+        }
+
+        if (extensions is null)
+        {
+            extensions = created;
+        }
+        else if (extensions is IDrawableExtension single)
+        {
+            extensions = new List<IDrawableExtension>(2) { single, created };
+        }
+        else
+        {
+            ((List<IDrawableExtension>)extensions).Add(created);
+        }
+
+        return created;
+    }
+
+    /// <summary>
+    /// Attempts to retrieve an attached extension of type <typeparamref name="TExtension"/> without allocating.
+    /// </summary>
+    public bool TryGetExtension<TExtension>([NotNullWhen(true)] out TExtension? extension)
+        where TExtension : class, IDrawableExtension
+        => tryGetExtensionCore(out extension);
+
+    /// <summary>
+    /// Detaches the extension of type <typeparamref name="TExtension"/> if present and invokes <see cref="IDrawableExtension.OnDispose"/>.
+    /// </summary>
+    /// <returns><see langword="true"/> if a matching extension was attached and removed; otherwise <see langword="false"/>.</returns>
+    public bool RemoveExtension<TExtension>()
+        where TExtension : class, IDrawableExtension
+    {
+        var current = extensions;
+
+        if (current is null)
+            return false;
+
+        if (current is IDrawableExtension single)
+        {
+            if (single is not TExtension)
+                return false;
+
+            extensions = null;
+            single.OnDispose(this);
+            return true;
+        }
+
+        var list = (List<IDrawableExtension>)current;
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] is not TExtension)
+                continue;
+
+            var removed = list[i];
+            list.RemoveAt(i);
+
+            if (list.Count == 0)
+                extensions = null;
+
+            removed.OnDispose(this);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Advances this drawable and its subtree for the current frame.
     /// </summary>
     /// <returns>
@@ -804,6 +959,12 @@ public class Drawable : IDisposable
 
         if (customClock is not null && ProcessCustomClock)
             customClock.ProcessFrame();
+
+        var wasAlive = IsAlive;
+        var nowAlive = SyncIsAlive();
+
+        if (!wasAlive && !nowAlive)
+            return true;
 
         if (Interlocked.CompareExchange(ref loadState, (int)LoadState.Loaded, (int)LoadState.Ready) == (int)LoadState.Ready)
         {
@@ -821,6 +982,19 @@ public class Drawable : IDisposable
             if (IsDisposed)
                 return false;
         }
+
+        if (extensions is not null)
+        {
+            updateExtensions();
+
+            if (IsDisposed)
+                return false;
+        }
+
+        nowAlive = SyncIsAlive();
+
+        if (!nowAlive)
+            return true;
 
         Update();
 
@@ -841,6 +1015,26 @@ public class Drawable : IDisposable
     }
 
     internal long ChildID { get; set; }
+
+    internal bool HasCustomClock => customClock is not null && ProcessCustomClock;
+
+    internal bool ShouldBeAlive => Time >= LifetimeStart && Time < LifetimeEnd;
+
+    internal bool SyncIsAlive()
+    {
+        var nowAlive = ShouldBeAlive;
+
+        if (IsAlive == nowAlive)
+            return nowAlive;
+
+        var wasPresent = IsPresent;
+        IsAlive = nowAlive;
+
+        if (wasPresent != IsPresent)
+            Invalidate(Invalidation.Presence);
+
+        return nowAlive;
+    }
 
     internal bool Load(IReadOnlyDependencyCollection parentDependencies)
         => LoadCore(parentDependencies, CancellationToken.None);
@@ -1248,6 +1442,7 @@ public class Drawable : IDisposable
     protected internal virtual void UpdateClock(IFrameBasedClock? clock)
     {
         inheritedClock = customClock is null ? clock : null;
+        SyncIsAlive();
     }
 
     /// <summary>
@@ -1266,6 +1461,21 @@ public class Drawable : IDisposable
             scheduler.CancelPendingTasks();
         }
 
+        var currentExtensions = extensions;
+        extensions = null;
+
+        if (currentExtensions is IDrawableExtension singleExtension)
+        {
+            singleExtension.OnDispose(this);
+        }
+        else if (currentExtensions is List<IDrawableExtension> extensionList)
+        {
+            for (var i = extensionList.Count - 1; i >= 0; i--)
+                extensionList[i].OnDispose(this);
+
+            extensionList.Clear();
+        }
+
         Dependencies = DependencyCollection.EMPTY;
         Parent = null;
         HasFocus = false;
@@ -1281,6 +1491,78 @@ public class Drawable : IDisposable
         var created = new Scheduler(new DrawableClockProxy(this));
         var existing = Interlocked.CompareExchange(ref scheduler, created, null);
         return existing ?? created;
+    }
+
+    private bool tryGetExtensionCore<TExtension>([NotNullWhen(true)] out TExtension? extension)
+        where TExtension : class, IDrawableExtension
+    {
+        var current = extensions;
+
+        if (current is null)
+        {
+            extension = null;
+            return false;
+        }
+
+        if (current is IDrawableExtension single)
+        {
+            if (single is TExtension typed)
+            {
+                extension = typed;
+                return true;
+            }
+
+            extension = null;
+            return false;
+        }
+
+        var list = (List<IDrawableExtension>)current;
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] is TExtension typed)
+            {
+                extension = typed;
+                return true;
+            }
+        }
+
+        extension = null;
+        return false;
+    }
+
+    private void updateExtensions()
+    {
+        var current = extensions;
+
+        if (current is null)
+            return;
+
+        if (current is IDrawableExtension single)
+        {
+            single.OnUpdate(this);
+            return;
+        }
+
+        var list = (List<IDrawableExtension>)current;
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (IsDisposed)
+                return;
+
+            var extension = list[i];
+            extension.OnUpdate(this);
+
+            if (extensions is null)
+                return;
+
+            if (i >= list.Count || !ReferenceEquals(list[i], extension))
+            {
+                var updatedIndex = list.IndexOf(extension);
+                i = updatedIndex >= 0 ? updatedIndex : i - 1;
+            }
+        }
     }
 
     private RectangleF getAvailableParentRectangle()

@@ -9,7 +9,9 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/framework/kajarlabs.Framework.Tests.csproj" />
+    <Project Path="tests/transforms/kajarlabs.Framework.Scene.Transforms.Tests.csproj" />
   </Folder>
   <Project Path="libs/framework/kajarlabs.Framework.csproj" />
+  <Project Path="libs/transforms/kajarlabs.Framework.Scene.Transforms.csproj" />
   <Project Path="libs/code-analysis/kajarlabs.Framework.CodeAnalysis.csproj" />
 </Solution>

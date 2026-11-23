@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Fluent transform timelines, easing curves, and animation sequences for kajarlabs.Framework.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="kajarlabs.Framework.Scene.Transforms.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\framework\kajarlabs.Framework.csproj" />
+  </ItemGroup>
+</Project>
