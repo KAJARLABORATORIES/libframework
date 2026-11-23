@@ -43,7 +43,7 @@ finally
     Console.CancelKeyPress -= onCancelKeyPress;
 }
 
-internal sealed class NestedContainersSampleGame : Game
+internal sealed partial class NestedContainersSampleGame : Game
 {
     private const int checker_texture_size = 64;
 
@@ -233,9 +233,7 @@ internal sealed class NestedContainersSampleGame : Game
         responsiveFrame.AddRange([maskedViewport, rightPanel]);
         Root.Add(responsiveFrame);
 
-        Logger.LogInformation("Nested containers sample loaded (initial viewport: {Width}x{Height}). Resize window to test layout propagation.",
-            Renderer.Viewport.Width,
-            Renderer.Viewport.Height);
+        logSampleLoaded(Logger, Renderer.Viewport.Width, Renderer.Viewport.Height);
     }
 
     protected override void Update()
@@ -319,4 +317,7 @@ internal sealed class NestedContainersSampleGame : Game
 
         return bytes;
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Nested containers sample loaded (initial viewport: {Width}x{Height}). Resize window to test layout propagation.")]
+    private static partial void logSampleLoaded(ILogger logger, float width, float height);
 }

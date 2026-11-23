@@ -178,7 +178,7 @@ public sealed partial class HeadlessInputIntegrationTests : IDisposable
             Root.Add(TextInputBox);
             backend.EnqueueEvent(new PlatformEvent(
                 PlatformEventType.MouseButtonDown,
-                backend.CreatedWindowId,
+                TextInputProbeBackend.CreatedWindowId,
                 Input: PlatformInputEvent.MouseButtonEvent(MouseButton.Left, isDown: true, new Vector2(50f, 40f))));
         }
 
@@ -189,7 +189,7 @@ public sealed partial class HeadlessInputIntegrationTests : IDisposable
                 step = 1;
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.MouseButtonDown,
-                    backend.CreatedWindowId,
+                    TextInputProbeBackend.CreatedWindowId,
                     Input: PlatformInputEvent.MouseButtonEvent(MouseButton.Left, isDown: true, new Vector2(400f, 400f))));
             }
             else if (step == 1 && !TextInputBox.HasFocus && !Window!.IsTextInputActive)
@@ -265,7 +265,7 @@ public sealed partial class HeadlessInputIntegrationTests : IDisposable
     {
         private readonly ConcurrentQueue<PlatformEvent> events = new();
 
-        public uint CreatedWindowId => 88;
+        public static uint CreatedWindowId => 88;
 
         public ConcurrentQueue<string> TextInputEvents { get; } = new();
 

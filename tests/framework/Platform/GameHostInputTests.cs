@@ -31,35 +31,35 @@ public sealed class GameHostInputTests : IDisposable
 
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.WindowFocusGained,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.WindowFocus(true)));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.MouseMotion,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.MouseMotion(new Vector2(100f, 50f), new Vector2(10f, -5f))));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.MouseButtonDown,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.MouseButtonEvent(MouseButton.Left, isDown: true, new Vector2(100f, 50f))));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.KeyDown,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.KeyEvent(Key.A, isDown: true, KeyModifiers.Shift)));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.TextInput,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.TextInput("A")));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.MouseWheel,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.MouseWheel(new Vector2(0f, 1.5f), new Vector2(100f, 50f), isPrecise: true)));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.MouseButtonUp,
-            backend.CreatedWindowId,
+            InputTestPlatformBackend.CreatedWindowId,
             Input: PlatformInputEvent.MouseButtonEvent(MouseButton.Left, isDown: false, new Vector2(100f, 50f))));
         backend.EnqueueEvent(new PlatformEvent(
             PlatformEventType.WindowMouseLeave,
-            backend.CreatedWindowId));
+            InputTestPlatformBackend.CreatedWindowId));
 
         host.Run(game);
 
@@ -106,11 +106,11 @@ public sealed class GameHostInputTests : IDisposable
 
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.MouseMotion,
-                    backend.CreatedWindowId,
+                    InputTestPlatformBackend.CreatedWindowId,
                     Input: PlatformInputEvent.MouseMotion(new Vector2(100f, 150f), new Vector2(5f, -3f))));
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.MouseWheel,
-                    backend.CreatedWindowId,
+                    InputTestPlatformBackend.CreatedWindowId,
                     Input: PlatformInputEvent.MouseWheel(new Vector2(0f, 2f), new Vector2(50f, 25f))));
             },
             onUpdate: (g, _) =>
@@ -118,10 +118,10 @@ public sealed class GameHostInputTests : IDisposable
                 if (step == 0 && g.ObservedEvents.Count >= 2)
                 {
                     step = 1;
-                    backend.EnqueueEvent(new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, backend.CreatedWindowId, 2400, 1800));
+                    backend.EnqueueEvent(new PlatformEvent(PlatformEventType.WindowPixelSizeChanged, InputTestPlatformBackend.CreatedWindowId, 2400, 1800));
                     backend.EnqueueEvent(new PlatformEvent(
                         PlatformEventType.MouseButtonDown,
-                        backend.CreatedWindowId,
+                        InputTestPlatformBackend.CreatedWindowId,
                         Input: PlatformInputEvent.MouseButtonEvent(MouseButton.Right, isDown: true, new Vector2(100f, 100f))));
                 }
                 else if (step == 1 && g.ObservedEvents.Count >= 3)
@@ -163,22 +163,22 @@ public sealed class GameHostInputTests : IDisposable
 
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.WindowFocusGained,
-                    backend.CreatedWindowId + 10));
+                    InputTestPlatformBackend.CreatedWindowId + 10));
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.KeyDown,
-                    backend.CreatedWindowId + 10,
+                    InputTestPlatformBackend.CreatedWindowId + 10,
                     Input: PlatformInputEvent.KeyEvent(Key.Escape, isDown: true)));
 
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.WindowFocusGained,
-                    backend.CreatedWindowId));
+                    InputTestPlatformBackend.CreatedWindowId));
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.KeyDown,
-                    backend.CreatedWindowId,
+                    InputTestPlatformBackend.CreatedWindowId,
                     Input: PlatformInputEvent.KeyEvent(Key.Enter, isDown: true)));
                 backend.EnqueueEvent(new PlatformEvent(
                     PlatformEventType.WindowFocusLost,
-                    backend.CreatedWindowId));
+                    InputTestPlatformBackend.CreatedWindowId));
             },
             onUpdate: (g, _) =>
             {
@@ -413,7 +413,7 @@ public sealed class GameHostInputTests : IDisposable
             this.pixelHeight = pixelHeight;
         }
 
-        public uint CreatedWindowId => 77;
+        public static uint CreatedWindowId => 77;
 
         public ConcurrentQueue<(string Action, int ThreadId)> TextInputCalls { get; } = new();
 

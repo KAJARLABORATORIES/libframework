@@ -11,7 +11,7 @@ public readonly struct InputState : IEquatable<InputState>
     /// <summary>
     /// Gets an empty input state with no pressed keys/buttons and no window focus.
     /// </summary>
-    public static readonly InputState EMPTY = default;
+    public static readonly InputState EMPTY;
 
     private readonly KeyboardState keyboard;
     private readonly MouseState mouse;

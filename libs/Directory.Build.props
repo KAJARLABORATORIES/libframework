@@ -4,6 +4,7 @@
   <PropertyGroup Label="AOT">
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <PropertyGroup Label="MinVer">
     <MinVerTagPrefix>v</MinVerTagPrefix>

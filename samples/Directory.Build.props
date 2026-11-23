@@ -1,6 +1,11 @@
 <Project>
   <Import
     Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup Label="AOT">
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference
       Include="$(MSBuildThisFileDirectory)..\libs\code-analysis\kajarlabs.Framework.CodeAnalysis.csproj"

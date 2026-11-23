@@ -68,7 +68,12 @@ internal sealed partial class SdlLogRouter : IDisposable
             return;
 
         var logger = loggerFactory.CreateLogger(MapCategory(category));
-        logSdlMessage(logger, MapPriority(priority), message);
+        var level = MapPriority(priority);
+
+        if (!logger.IsEnabled(level))
+            return;
+
+        logSdlMessage(logger, level, message);
     }
 
     [LoggerMessage(Message = "{Message}")]

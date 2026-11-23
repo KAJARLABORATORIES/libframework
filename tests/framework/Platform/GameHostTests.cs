@@ -855,8 +855,8 @@ public sealed partial class GameHostTests : IDisposable
         public IDisposable InstallLogRouter(ILoggerFactory loggerFactory)
         {
             LifecycleCalls.Add("InstallLogRouter");
-            activeRouter = new FakeLogRouter(this, loggerFactory);
-            return activeRouter;
+            activeRouter = new FakeLogRouter(loggerFactory);
+            return new LogRouterToken(this);
         }
 
         public IDisposable InitializeVideo(string? videoDriverHint = null)
@@ -936,11 +936,14 @@ public sealed partial class GameHostTests : IDisposable
             return new EventWatchToken(this, callback);
         }
 
-        public sealed class FakeLogRouter(FakePlatformBackend owner, ILoggerFactory loggerFactory) : IDisposable
+        public sealed class FakeLogRouter(ILoggerFactory loggerFactory)
         {
             public void EmitLog(string category, LogLevel level, string message)
                 => loggerFactory.CreateLogger(category).Log(level, "{Message}", message);
+        }
 
+        private sealed class LogRouterToken(FakePlatformBackend owner) : IDisposable
+        {
             public void Dispose()
             {
                 owner.activeRouter = null;

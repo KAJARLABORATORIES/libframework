@@ -3,6 +3,12 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!--
+      VerifyReferenceTrimCompatibility and VerifyReferenceAotCompatibility are intentionally not enabled yet:
+      kajarlabs.Framework emits IsTrimmable/IsAotCompatible assembly metadata, but upstream SDL3-CS (3.4.18.1)
+      currently does not, causing IL2125 and IL3058. Re-evaluate once SDL3-CS ships trim/AOT metadata instead
+      of suppressing those diagnostics silently.
+    -->
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\libs\framework\kajarlabs.Framework.csproj" />

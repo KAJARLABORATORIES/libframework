@@ -5,7 +5,14 @@ namespace kajarlabs.Framework.Graphics;
 /// </summary>
 public enum TextureFilteringMode
 {
+    /// <summary>
+    /// Uses bilinear interpolation between neighboring texels.
+    /// </summary>
     Linear = 0,
+
+    /// <summary>
+    /// Selects the nearest texel without interpolation.
+    /// </summary>
     Nearest = 1,
 }
 
@@ -14,7 +21,14 @@ public enum TextureFilteringMode
 /// </summary>
 public enum TextureWrapMode
 {
+    /// <summary>
+    /// Clamps out-of-range coordinates to the edge texels.
+    /// </summary>
     ClampToEdge = 0,
+
+    /// <summary>
+    /// Wraps out-of-range coordinates periodically across the texture.
+    /// </summary>
     Repeat = 1,
 }
 
