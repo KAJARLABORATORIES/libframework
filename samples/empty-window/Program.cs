@@ -27,15 +27,25 @@ finally
     Console.CancelKeyPress -= onCancelKeyPress;
 }
 
-internal sealed class EmptyWindowGame : Game
+internal sealed partial class EmptyWindowGame : Game
 {
     protected override void Load()
     {
-        Logger.LogInformation("Empty window opened. Log directory: {LogsPath}", Storage.GetFullPath("logs"));
+        if (Logger.IsEnabled(LogLevel.Information))
+        {
+            var logsPath = Storage.GetFullPath("logs");
+            logWindowOpened(Logger, logsPath);
+        }
     }
 
     protected override void Exiting()
     {
-        Logger.LogInformation("Closing empty window sample.");
+        logSampleClosing(Logger);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Empty window opened. Log directory: {LogsPath}")]
+    private static partial void logWindowOpened(ILogger logger, string logsPath);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Closing empty window sample.")]
+    private static partial void logSampleClosing(ILogger logger);
 }

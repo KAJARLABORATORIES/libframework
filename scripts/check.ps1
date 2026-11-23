@@ -27,13 +27,20 @@ try {
     dotnet restore
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Host "==> dotnet format --verify-no-changes --no-restore" -ForegroundColor Cyan
-    dotnet format --verify-no-changes --no-restore
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
     Write-Host "==> dotnet build -c Release --no-restore" -ForegroundColor Cyan
     dotnet build -c Release --no-restore
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    Write-Host "==> dotnet format --verify-no-changes --no-restore (Release)" -ForegroundColor Cyan
+    $previousConfiguration = $env:Configuration
+    $env:Configuration = "Release"
+    try {
+        dotnet format --verify-no-changes --no-restore
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    finally {
+        $env:Configuration = $previousConfiguration
+    }
 
     Write-Host "==> dotnet test -c Release --no-build" -ForegroundColor Cyan
     dotnet test -c Release --no-build

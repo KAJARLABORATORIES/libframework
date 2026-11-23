@@ -5,16 +5,59 @@ namespace kajarlabs.Framework.Graphics;
 /// </summary>
 public enum BlendFactor
 {
+    /// <summary>
+    /// Scales components by <c>0</c>.
+    /// </summary>
     Zero,
+
+    /// <summary>
+    /// Scales components by <c>1</c>.
+    /// </summary>
     One,
+
+    /// <summary>
+    /// Scales components by the source color channels (<c>SrcColor</c>).
+    /// </summary>
     SourceColor,
+
+    /// <summary>
+    /// Scales components by the inverse source color channels (<c>1 - SrcColor</c>).
+    /// </summary>
     OneMinusSourceColor,
+
+    /// <summary>
+    /// Scales components by the destination color channels (<c>DstColor</c>).
+    /// </summary>
     DestinationColor,
+
+    /// <summary>
+    /// Scales components by the inverse destination color channels (<c>1 - DstColor</c>).
+    /// </summary>
     OneMinusDestinationColor,
+
+    /// <summary>
+    /// Scales components by the source alpha channel (<c>SrcAlpha</c>).
+    /// </summary>
     SourceAlpha,
+
+    /// <summary>
+    /// Scales components by the inverse source alpha channel (<c>1 - SrcAlpha</c>).
+    /// </summary>
     OneMinusSourceAlpha,
+
+    /// <summary>
+    /// Scales components by the destination alpha channel (<c>DstAlpha</c>).
+    /// </summary>
     DestinationAlpha,
+
+    /// <summary>
+    /// Scales components by the inverse destination alpha channel (<c>1 - DstAlpha</c>).
+    /// </summary>
     OneMinusDestinationAlpha,
+
+    /// <summary>
+    /// Scales RGB components by <c>min(SrcAlpha, 1 - DstAlpha)</c> and alpha by <c>1</c>.
+    /// </summary>
     SourceAlphaSaturate,
 }
 
@@ -23,10 +66,29 @@ public enum BlendFactor
 /// </summary>
 public enum BlendOperation
 {
+    /// <summary>
+    /// Adds weighted source and destination components (<c>Src + Dst</c>).
+    /// </summary>
     Add,
+
+    /// <summary>
+    /// Subtracts weighted destination from source components (<c>Src - Dst</c>).
+    /// </summary>
     Subtract,
+
+    /// <summary>
+    /// Subtracts weighted source from destination components (<c>Dst - Src</c>).
+    /// </summary>
     ReverseSubtract,
+
+    /// <summary>
+    /// Takes the component-wise minimum of source and destination (<c>min(Src, Dst)</c>).
+    /// </summary>
     Min,
+
+    /// <summary>
+    /// Takes the component-wise maximum of source and destination (<c>max(Src, Dst)</c>).
+    /// </summary>
     Max,
 }
 

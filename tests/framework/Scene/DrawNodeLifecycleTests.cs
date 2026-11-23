@@ -221,7 +221,6 @@ public sealed class DrawNodeLifecycleTests
         {
             public int Width => 1;
             public int Height => 1;
-            public bool IsDisposed => false;
 
             public void SetData(ReadOnlySpan<byte> rgba8Pixels)
             {

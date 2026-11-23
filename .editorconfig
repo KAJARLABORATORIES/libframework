@@ -197,8 +197,22 @@ csharp_style_prefer_range_operator = true:warning
 csharp_style_prefer_switch_expression = false:none
 
 ## Private method/member is unused
-## Silenced: osu!framework reflection-based binding (e.g. BackgroundDependencyLoader,
-## Cached) accesses private fields/members without "visible" usage to the analyzer,
-## generating a false positive. This is not a warning hidden for convenience.
-dotnet_diagnostic.IDE0051.severity = silent
-dotnet_diagnostic.IDE0052.severity = silent
+## Enforced as warnings: compile-time source generators (kajarlabs.Framework.CodeAnalysis for
+## [Cached]/[Resolved], Microsoft.Extensions.Logging for [LoggerMessage]) emit direct member
+## references, so unused private members are genuine dead code.
+dotnet_diagnostic.IDE0051.severity = warning
+dotnet_diagnostic.IDE0052.severity = warning
+
+## Code Analysis - Naming
+## Disabled: this repository intentionally enforces ALL_UPPER with underscores for non-private
+## const and static readonly fields (see public_const_all_upper / public_static_readonly_all_upper above).
+dotnet_diagnostic.CA1707.severity = none
+## Disabled: C#-first API where idiomatic names like Default, Get, and Stop on interfaces/virtuals
+## are intentional; VB/F# cross-language inheritance is not a target.
+dotnet_diagnostic.CA1716.severity = none
+
+[tests/**.cs]
+## Disabled in tests: logging tests intentionally exercise ILogger extension methods (LogInformation,
+## LogWarning, Log) directly and are not runtime hot paths.
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none

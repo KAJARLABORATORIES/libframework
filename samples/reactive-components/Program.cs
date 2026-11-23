@@ -102,10 +102,7 @@ internal sealed partial class ReactiveComponentsSampleGame : Game
 
         _ = Root.LoadComponentsAsync(meterBars, Root.AddRange);
 
-        Logger.LogInformation(
-            "Reactive components sample started (initial viewport: {Width}x{Height}).",
-            Renderer.Viewport.Width,
-            Renderer.Viewport.Height);
+        logSampleStarted(Logger, Renderer.Viewport.Width, Renderer.Viewport.Height);
     }
 
     protected override void Update()
@@ -147,6 +144,9 @@ internal sealed partial class ReactiveComponentsSampleGame : Game
 
         base.Dispose(disposing);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reactive components sample started (initial viewport: {Width}x{Height}).")]
+    private static partial void logSampleStarted(ILogger logger, float width, float height);
 }
 
 internal sealed partial class ReactiveStageContainer : Container
@@ -197,7 +197,8 @@ internal sealed partial class ReactiveStageContainer : Container
                 0.1f + (e.NewValue.G * 0.16f),
                 0.14f + (e.NewValue.B * 0.16f),
                 1f);
-            logger?.LogDebug("Reactive stage updated accent tint.");
+            if (logger is not null)
+                logAccentTintUpdated(logger);
         }, runOnceImmediately: true);
 
         boundMasking.BindValueChanged(e => Masking = e.NewValue, runOnceImmediately: true);
@@ -213,6 +214,9 @@ internal sealed partial class ReactiveStageContainer : Container
 
         base.Dispose(disposing);
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Reactive stage updated accent tint.")]
+    private static partial void logAccentTintUpdated(ILogger logger);
 }
 
 internal sealed partial class AsyncReactiveOrbital : Container
@@ -267,7 +271,7 @@ internal sealed partial class AsyncReactiveOrbital : Container
 
     protected override void LoadComplete()
     {
-        game.Logger.LogInformation("AsyncReactiveOrbital completed async load on update thread.");
+        logAsyncLoadCompleted(game.Logger);
 
         boundAccent.BindValueChanged(e => coreBox.Color = e.NewValue, runOnceImmediately: true);
         boundPulse.BindValueChanged(e =>
@@ -292,6 +296,9 @@ internal sealed partial class AsyncReactiveOrbital : Container
 
         base.Dispose(disposing);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "AsyncReactiveOrbital completed async load on update thread.")]
+    private static partial void logAsyncLoadCompleted(ILogger logger);
 }
 
 internal sealed partial class AsyncReactiveBar(int index) : Box

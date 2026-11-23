@@ -20,12 +20,16 @@ public sealed class FileSystemStorage : Storage
         this.root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
     }
 
+    /// <inheritdoc />
     protected override string GetFullPathCore(string relativePath) => combine(relativePath);
 
+    /// <inheritdoc />
     protected override bool ExistsCore(string relativePath) => File.Exists(combine(relativePath));
 
+    /// <inheritdoc />
     protected override bool ExistsDirectoryCore(string relativePath) => Directory.Exists(combine(relativePath));
 
+    /// <inheritdoc />
     protected override IEnumerable<string> GetFilesCore(string relativePath)
     {
         var fullPath = combine(relativePath);
@@ -35,6 +39,7 @@ public sealed class FileSystemStorage : Storage
             : [];
     }
 
+    /// <inheritdoc />
     protected override IEnumerable<string> GetDirectoriesCore(string relativePath)
     {
         var fullPath = combine(relativePath);
@@ -44,6 +49,7 @@ public sealed class FileSystemStorage : Storage
             : [];
     }
 
+    /// <inheritdoc />
     protected override Stream GetStreamCore(string relativePath, FileAccess access, FileMode mode)
     {
         var fullPath = combine(relativePath);
@@ -56,6 +62,7 @@ public sealed class FileSystemStorage : Storage
         return new FileStream(fullPath, mode, access, FileShare.Read);
     }
 
+    /// <inheritdoc />
     protected override void DeleteCore(string relativePath)
     {
         var fullPath = combine(relativePath);
@@ -64,6 +71,7 @@ public sealed class FileSystemStorage : Storage
             File.Delete(fullPath);
     }
 
+    /// <inheritdoc />
     protected override void DeleteDirectoryCore(string relativePath)
     {
         var fullPath = combine(relativePath);
@@ -72,6 +80,7 @@ public sealed class FileSystemStorage : Storage
             Directory.Delete(fullPath, true);
     }
 
+    /// <inheritdoc />
     protected override Storage GetStorageForDirectoryCore(string relativePath) => new FileSystemStorage(combine(relativePath));
 
     /// <summary>

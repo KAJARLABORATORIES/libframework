@@ -14,7 +14,7 @@ public readonly struct KeyboardState : IEquatable<KeyboardState>
     /// <summary>
     /// Gets an empty keyboard state with no pressed keys or modifiers.
     /// </summary>
-    public static readonly KeyboardState EMPTY = default;
+    public static readonly KeyboardState EMPTY;
 
     private readonly ulong bits0;
     private readonly ulong bits1;

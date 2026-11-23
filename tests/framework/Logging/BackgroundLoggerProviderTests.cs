@@ -1,3 +1,4 @@
+using System.Globalization;
 using kajarlabs.Framework.Logging;
 using Microsoft.Extensions.Logging;
 
@@ -54,7 +55,7 @@ public sealed class BackgroundLoggerProviderTests
             var prefix = $"T{t}:";
             var perThread = sink.Messages
                 .Where(m => m.Message.StartsWith(prefix, StringComparison.Ordinal))
-                .Select(m => int.Parse(m.Message.AsSpan(prefix.Length)))
+                .Select(m => int.Parse(m.Message.AsSpan(prefix.Length), CultureInfo.InvariantCulture))
                 .ToArray();
 
             Assert.Equal(Enumerable.Range(0, messages_per_thread), perThread);

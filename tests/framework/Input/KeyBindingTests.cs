@@ -64,6 +64,35 @@ public sealed class KeyBindingTests
     }
 
     [Fact]
+    public void InputKeyComparisonOperatorsMatchCompareToOrdering()
+    {
+        InputKey modifier = InputKey.Control;
+        InputKey keyA = Key.A;
+        InputKey keyB = Key.B;
+        InputKey mouseLeft = MouseButton.Left;
+        InputKey wheelUp = ScrollDirection.Up;
+        var none = InputKey.None;
+
+        Assert.True(modifier < keyA);
+        Assert.True(modifier <= keyA);
+        Assert.False(modifier > keyA);
+        Assert.False(modifier >= keyA);
+
+        Assert.True(keyA < keyB);
+        Assert.True(keyB > keyA);
+        Assert.True(keyA <= Key.A);
+        Assert.True(keyA >= Key.A);
+        Assert.False(keyA < Key.A);
+        Assert.False(keyA > Key.A);
+
+        Assert.True(keyB < mouseLeft);
+        Assert.True(mouseLeft < wheelUp);
+        Assert.True(wheelUp < none);
+        Assert.True(none > wheelUp);
+        Assert.True(none >= wheelUp);
+    }
+
+    [Fact]
     public void KeyCombinationCanonicalizesEqualityAndEvaluatesExactMatch()
     {
         var combo1 = new KeyCombination(Key.S, InputKey.Control, Key.S, InputKey.None);

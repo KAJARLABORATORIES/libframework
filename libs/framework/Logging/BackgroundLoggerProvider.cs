@@ -162,7 +162,7 @@ internal sealed class BackgroundLoggerProvider : ILoggerProvider
 /// <summary>
 /// Flushes queued logs when <see cref="AppDomain.UnhandledException"/> fires.
 /// </summary>
-internal sealed class UnhandledExceptionFlushHook : IDisposable
+internal sealed partial class UnhandledExceptionFlushHook : IDisposable
 {
     private readonly BackgroundLoggerProvider provider;
     private readonly ILogger? logger;
@@ -179,10 +179,13 @@ internal sealed class UnhandledExceptionFlushHook : IDisposable
 
     internal void HandleUnhandledException(object? exceptionObject)
     {
-        if (exceptionObject is Exception exception)
-            logger?.LogCritical(exception, "Unhandled exception");
-        else if (exceptionObject is not null)
-            logger?.LogCritical("Unhandled non-exception error: {Error}", exceptionObject);
+        if (logger is not null)
+        {
+            if (exceptionObject is Exception exception)
+                logUnhandledException(logger, exception);
+            else if (exceptionObject is not null)
+                logUnhandledNonException(logger, exceptionObject);
+        }
 
         provider.Flush();
     }
@@ -197,4 +200,10 @@ internal sealed class UnhandledExceptionFlushHook : IDisposable
 
     private void onUnhandledException(object sender, UnhandledExceptionEventArgs e)
         => HandleUnhandledException(e.ExceptionObject);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled exception")]
+    private static partial void logUnhandledException(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled non-exception error: {Error}")]
+    private static partial void logUnhandledNonException(ILogger logger, object error);
 }

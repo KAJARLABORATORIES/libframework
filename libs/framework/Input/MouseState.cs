@@ -14,7 +14,7 @@ public readonly struct MouseState : IEquatable<MouseState>
     /// <summary>
     /// Gets an empty mouse state at the origin with no pressed buttons or deltas.
     /// </summary>
-    public static readonly MouseState EMPTY = default;
+    public static readonly MouseState EMPTY;
 
     private readonly Vector2 position;
     private readonly Vector2 delta;

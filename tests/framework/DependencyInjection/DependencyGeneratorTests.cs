@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using kajarlabs.Framework.CodeAnalysis;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Scene;
@@ -361,7 +362,7 @@ public sealed class DependencyGeneratorTests
 
         var result = runGenerator(source);
 
-        var kjdi004 = result.GeneratorDiagnostics.Where(d => d.Id == "KJDI004").Select(d => d.GetMessage()).ToArray();
+        var kjdi004 = result.GeneratorDiagnostics.Where(d => d.Id == "KJDI004").Select(d => d.GetMessage(CultureInfo.InvariantCulture)).ToArray();
         Assert.Equal(4, kjdi004.Length);
         Assert.Contains(kjdi004, static m => m.Contains("'BadAsTypeDrawable'", StringComparison.Ordinal));
         Assert.Contains(kjdi004, static m => m.Contains("'unrelated'", StringComparison.Ordinal));

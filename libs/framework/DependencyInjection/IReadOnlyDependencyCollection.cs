@@ -5,6 +5,7 @@ namespace kajarlabs.Framework.DependencyInjection;
 /// <summary>
 /// Provides read-only hierarchical dependency lookup without runtime reflection.
 /// </summary>
+[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix", Justification = "Established public API type name; renaming would be a breaking change.")]
 public interface IReadOnlyDependencyCollection
 {
     /// <summary>

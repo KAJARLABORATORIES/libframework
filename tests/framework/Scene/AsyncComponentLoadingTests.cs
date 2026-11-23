@@ -529,7 +529,7 @@ public sealed partial class AsyncComponentLoadingTests
     private sealed partial class MissingDependencyDrawable : Drawable
     {
         [Resolved]
-        private ITestService missingService = null!;
+        public ITestService MissingService { get; private set; } = null!;
     }
 
     private sealed class AsyncHostFlowGame : Game

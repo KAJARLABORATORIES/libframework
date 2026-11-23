@@ -6,6 +6,7 @@ namespace kajarlabs.Framework.DependencyInjection;
 /// A thread-safe, reflection-free dependency registry supporting optional parent fallback
 /// and local shadowing for hierarchical component trees.
 /// </summary>
+[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix", Justification = "Established public API type name; renaming would be a breaking change.")]
 public sealed class DependencyCollection : IReadOnlyDependencyCollection
 {
     /// <summary>

@@ -280,6 +280,26 @@ public readonly struct InputKey : IEquatable<InputKey>, IComparable<InputKey>
     /// </summary>
     public static bool operator !=(InputKey left, InputKey right) => !left.Equals(right);
 
+    /// <summary>
+    /// Determines whether <paramref name="left"/> precedes <paramref name="right"/> in canonical sort order.
+    /// </summary>
+    public static bool operator <(InputKey left, InputKey right) => left.CompareTo(right) < 0;
+
+    /// <summary>
+    /// Determines whether <paramref name="left"/> precedes or equals <paramref name="right"/> in canonical sort order.
+    /// </summary>
+    public static bool operator <=(InputKey left, InputKey right) => left.CompareTo(right) <= 0;
+
+    /// <summary>
+    /// Determines whether <paramref name="left"/> follows <paramref name="right"/> in canonical sort order.
+    /// </summary>
+    public static bool operator >(InputKey left, InputKey right) => left.CompareTo(right) > 0;
+
+    /// <summary>
+    /// Determines whether <paramref name="left"/> follows or equals <paramref name="right"/> in canonical sort order.
+    /// </summary>
+    public static bool operator >=(InputKey left, InputKey right) => left.CompareTo(right) >= 0;
+
     /// <inheritdoc />
     public bool Equals(InputKey other) => kind == other.kind && rawValue == other.rawValue;
 

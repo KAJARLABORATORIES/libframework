@@ -24,7 +24,9 @@ public sealed class DependencyCollectionTests
         Assert.True(collection.TryGet<IProbeService>(out var resolvedService));
         Assert.Same(service, resolvedService);
         Assert.Same(service, collection.Get<IProbeService>());
+#pragma warning disable CA2263 // Explicitly verifying the non-generic Get(Type) overload.
         Assert.Same(service, collection.Get(typeof(IProbeService)));
+#pragma warning restore CA2263
 
         Assert.True(collection.TryGet<ProbeMetrics>(out var resolvedMetrics));
         Assert.Equal(metrics, resolvedMetrics);
@@ -90,13 +92,17 @@ public sealed class DependencyCollectionTests
         Assert.Equal(typeof(IProbeService), genericEx.DependencyType);
         Assert.IsAssignableFrom<InvalidOperationException>(genericEx);
 
+#pragma warning disable CA2263 // Explicitly verifying the non-generic Get(Type) overload.
         var untypedEx = Assert.Throws<DependencyNotFoundException>(() => collection.Get(typeof(SharedConfig)));
+#pragma warning restore CA2263
         Assert.Equal(typeof(SharedConfig), untypedEx.DependencyType);
 
         Assert.False(DependencyCollection.EMPTY.TryGet<IProbeService>(out _));
         Assert.False(DependencyCollection.EMPTY.TryGet(typeof(IProbeService), out _));
         Assert.Throws<DependencyNotFoundException>(() => DependencyCollection.EMPTY.Get<IProbeService>());
+#pragma warning disable CA2263 // Explicitly verifying the non-generic Get(Type) overload on EmptyDependencyCollection.
         Assert.Throws<DependencyNotFoundException>(() => DependencyCollection.EMPTY.Get(typeof(IProbeService)));
+#pragma warning restore CA2263
         Assert.Throws<ArgumentNullException>(() => DependencyCollection.EMPTY.TryGet(null!, out _));
         Assert.Throws<ArgumentNullException>(() => DependencyCollection.EMPTY.Get(null!));
     }

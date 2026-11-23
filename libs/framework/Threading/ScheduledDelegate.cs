@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace kajarlabs.Framework.Threading;
 
 /// <summary>
@@ -29,6 +31,7 @@ public enum ScheduledDelegateState
 /// <summary>
 /// A handle to an action scheduled on a <see cref="Scheduler"/>.
 /// </summary>
+[SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix", Justification = "Established public API type name; renaming would be a breaking change.")]
 public sealed class ScheduledDelegate
 {
     private readonly Action task;

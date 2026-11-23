@@ -1,6 +1,12 @@
 <Project>
   <Import
     Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <!--
+    Trim/AOT analyzers (EnableTrimAnalyzer, EnableAotAnalyzer, EnableSingleFileAnalyzer) are intentionally
+    not enabled for test projects: DependencyGeneratorTests relies on Roslyn compilation APIs
+    (CSharpCompilation / CSharpGeneratorDriver) and xUnit v3 relies on dynamic test discovery, neither of
+    which is NativeAOT-compatible.
+  -->
   <ItemGroup>
     <ProjectReference
       Include="$(MSBuildThisFileDirectory)..\libs\code-analysis\kajarlabs.Framework.CodeAnalysis.csproj"

@@ -1027,7 +1027,7 @@ public sealed partial class InteractiveInputIntegrationTests : IDisposable
     {
         private readonly ConcurrentQueue<PlatformEvent> events = new();
 
-        public uint CreatedWindowId => 77;
+        public static uint CreatedWindowId => 77;
 
         public void Enqueue(PlatformEventType type, PlatformInputEvent input)
             => events.Enqueue(new PlatformEvent(type, CreatedWindowId, Input: input));

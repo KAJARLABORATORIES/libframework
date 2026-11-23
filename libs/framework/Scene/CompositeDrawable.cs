@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
 using kajarlabs.Framework.Numerics;
@@ -876,6 +877,10 @@ public class CompositeDrawable : Drawable
         Done,
     }
 
+    [SuppressMessage(
+        "Reliability",
+        "CA1001:Types that own disposable fields should be disposable",
+        Justification = "linkedCts is deterministically disposed via atomic reference counting in releaseLinkedCts() once both background load and completion/cancellation paths finish.")]
     private sealed class PendingAsyncLoad<TDrawable, TResult> : IPendingAsyncLoad
         where TDrawable : Drawable
     {

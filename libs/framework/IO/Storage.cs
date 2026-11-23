@@ -22,6 +22,9 @@ public abstract class Storage
 {
     private static readonly char[] separators = ['/', '\\'];
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Storage"/> class.
+    /// </summary>
     protected Storage()
     {
     }
@@ -85,23 +88,51 @@ public abstract class Storage
     /// </summary>
     public Storage GetStorageForDirectory(string path) => GetStorageForDirectoryCore(resolve(path));
 
+    /// <summary>
+    /// Resolves a canonical relative path to its full path on the underlying medium.
+    /// </summary>
+    /// <param name="relativePath">Canonical <c>/</c>-separated path relative to the storage root, or empty for the root itself.</param>
     protected virtual string GetFullPathCore(string relativePath)
         => throw new NotSupportedException($"{GetType().Name} is not backed by a file system.");
 
+    /// <summary>
+    /// Determines whether a file exists at the canonical relative path <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract bool ExistsCore(string relativePath);
 
+    /// <summary>
+    /// Determines whether a directory exists at the canonical relative path <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract bool ExistsDirectoryCore(string relativePath);
 
+    /// <summary>
+    /// Enumerates files directly inside the canonical relative directory <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract IEnumerable<string> GetFilesCore(string relativePath);
 
+    /// <summary>
+    /// Enumerates directories directly inside the canonical relative directory <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract IEnumerable<string> GetDirectoriesCore(string relativePath);
 
+    /// <summary>
+    /// Opens a stream for the file at the canonical relative path <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract Stream GetStreamCore(string relativePath, FileAccess access, FileMode mode);
 
+    /// <summary>
+    /// Deletes the file at the canonical relative path <paramref name="relativePath"/> if it exists.
+    /// </summary>
     protected abstract void DeleteCore(string relativePath);
 
+    /// <summary>
+    /// Deletes the non-root directory at the canonical relative path <paramref name="relativePath"/> recursively if it exists.
+    /// </summary>
     protected abstract void DeleteDirectoryCore(string relativePath);
 
+    /// <summary>
+    /// Returns a child <see cref="Storage"/> rooted at the canonical relative directory <paramref name="relativePath"/>.
+    /// </summary>
     protected abstract Storage GetStorageForDirectoryCore(string relativePath);
 
     /// <summary>

@@ -233,10 +233,7 @@ internal sealed partial class InteractiveInputSampleGame : Game
             textInputTarget,
         ]);
 
-        Logger.LogInformation(
-            "Interactive input sample started (viewport: {Width}x{Height}). Controls: hover/click/double-click tiles, scroll left panel, drag right cards, type when right-most focus box is focused. Keys: R=rotate, Ctrl+R=reset, M=masking, Tab=cycle focus, C=accent, Ctrl+Scroll=zoom, Esc=exit.",
-            Renderer.Viewport.Width,
-            Renderer.Viewport.Height);
+        logSampleStarted(Logger, Renderer.Viewport.Width, Renderer.Viewport.Height);
     }
 
     internal void HandleSampleAction(SampleAction action)
@@ -245,7 +242,7 @@ internal sealed partial class InteractiveInputSampleGame : Game
         {
             case SampleAction.ToggleRotation:
                 RotationEnabled.Toggle();
-                Logger.LogInformation("KeyBinding ToggleRotation -> RotationEnabled={Enabled}", RotationEnabled.Value);
+                logToggleRotation(Logger, RotationEnabled.Value);
                 break;
 
             case SampleAction.ResetScene:
@@ -255,12 +252,12 @@ internal sealed partial class InteractiveInputSampleGame : Game
                 maskedPanel?.ResetLayout();
                 primaryCard?.ResetPosition();
                 secondaryCard?.ResetPosition();
-                Logger.LogInformation("KeyBinding ResetScene (Ctrl+R) -> scene state reset.");
+                logResetScene(Logger);
                 break;
 
             case SampleAction.ToggleMasking:
                 MaskingEnabled.Toggle();
-                Logger.LogInformation("KeyBinding ToggleMasking -> MaskingEnabled={Enabled}", MaskingEnabled.Value);
+                logToggleMasking(Logger, MaskingEnabled.Value);
                 break;
 
             case SampleAction.CycleFocus:
@@ -270,17 +267,17 @@ internal sealed partial class InteractiveInputSampleGame : Game
             case SampleAction.CycleAccent:
                 paletteIndex = (paletteIndex + 1) % accent_palette.Length;
                 AccentColor.Value = accent_palette[paletteIndex];
-                Logger.LogInformation("KeyBinding CycleAccent -> palette index {Index}", paletteIndex);
+                logCycleAccent(Logger, paletteIndex);
                 break;
 
             case SampleAction.ZoomIn:
                 StageZoom.Value += 0.1f;
-                Logger.LogInformation("KeyBinding ZoomIn -> StageZoom={Zoom:0.00}", StageZoom.Value);
+                logZoomIn(Logger, StageZoom.Value);
                 break;
 
             case SampleAction.ZoomOut:
                 StageZoom.Value -= 0.1f;
-                Logger.LogInformation("KeyBinding ZoomOut -> StageZoom={Zoom:0.00}", StageZoom.Value);
+                logZoomOut(Logger, StageZoom.Value);
                 break;
 
             case SampleAction.Exit:
@@ -322,8 +319,39 @@ internal sealed partial class InteractiveInputSampleGame : Game
         focusCycleIndex = (focusCycleIndex + 1) % focusCycleTargets.Count;
         var next = focusCycleTargets[focusCycleIndex];
         var changed = InputManager.ChangeFocus(next);
-        Logger.LogInformation("KeyBinding CycleFocus -> target={Target} acquired={Acquired}", next.GetType().Name, changed);
+
+        if (Logger.IsEnabled(LogLevel.Information))
+        {
+            var targetName = next.GetType().Name;
+            logCycleFocus(Logger, targetName, changed);
+        }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Interactive input sample started (viewport: {Width}x{Height}). Controls: hover/click/double-click tiles, scroll left panel, drag right cards, type when right-most focus box is focused. Keys: R=rotate, Ctrl+R=reset, M=masking, Tab=cycle focus, C=accent, Ctrl+Scroll=zoom, Esc=exit.")]
+    private static partial void logSampleStarted(ILogger logger, float width, float height);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding ToggleRotation -> RotationEnabled={Enabled}")]
+    private static partial void logToggleRotation(ILogger logger, bool enabled);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding ResetScene (Ctrl+R) -> scene state reset.")]
+    private static partial void logResetScene(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding ToggleMasking -> MaskingEnabled={Enabled}")]
+    private static partial void logToggleMasking(ILogger logger, bool enabled);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding CycleAccent -> palette index {Index}")]
+    private static partial void logCycleAccent(ILogger logger, int index);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding ZoomIn -> StageZoom={Zoom:0.00}")]
+    private static partial void logZoomIn(ILogger logger, float zoom);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding ZoomOut -> StageZoom={Zoom:0.00}")]
+    private static partial void logZoomOut(ILogger logger, float zoom);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "KeyBinding CycleFocus -> target={Target} acquired={Acquired}")]
+    private static partial void logCycleFocus(ILogger logger, string target, bool acquired);
 }
 
 internal sealed class SampleKeyBindingContainer : KeyBindingContainer<SampleAction>
@@ -583,7 +611,7 @@ internal sealed partial class MaskedInteractivePanel : Container
 
         scrollPanY = Math.Clamp(scrollPanY + (e.ScrollDelta.Y * 18f), -90f, 90f);
         outerRotating.Position = new Vector2(0f, scrollPanY);
-        game.Logger.LogDebug("MaskedInteractivePanel scrolled -> panY={PanY:0.0}", scrollPanY);
+        logPanelScrolled(game.Logger, scrollPanY);
         return true;
     }
 
@@ -598,6 +626,9 @@ internal sealed partial class MaskedInteractivePanel : Container
 
         base.Dispose(disposing);
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "MaskedInteractivePanel scrolled -> panY={PanY:0.0}")]
+    private static partial void logPanelScrolled(ILogger logger, float panY);
 }
 
 internal sealed partial class InteractiveTile : Container
@@ -712,7 +743,7 @@ internal sealed partial class InteractiveTile : Container
         toggled = !toggled;
         flashRemainingMs = 220;
         updateVisuals();
-        game.Logger.LogInformation("Clicked {Tile} (toggled={Toggled}).", name, toggled);
+        logTileClicked(game.Logger, name, toggled);
         return true;
     }
 
@@ -721,14 +752,14 @@ internal sealed partial class InteractiveTile : Container
         flashRemainingMs = 450;
         Scale = Scale == Vector2.One ? new Vector2(1.15f) : Vector2.One;
         updateVisuals();
-        game.Logger.LogInformation("Double-clicked {Tile} -> scale={Scale}.", name, Scale.X);
+        logTileDoubleClicked(game.Logger, name, Scale.X);
         return true;
     }
 
     protected override void OnFocus(FocusEvent e)
     {
         updateVisuals();
-        game.Logger.LogInformation("Focused {Tile}.", name);
+        logTileFocused(game.Logger, name);
     }
 
     protected override void OnFocusLost(FocusLostEvent e) => updateVisuals();
@@ -771,6 +802,15 @@ internal sealed partial class InteractiveTile : Container
         else
             fill.Color = baseColor;
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Clicked {Tile} (toggled={Toggled}).")]
+    private static partial void logTileClicked(ILogger logger, string tile, bool toggled);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Double-clicked {Tile} -> scale={Scale}.")]
+    private static partial void logTileDoubleClicked(ILogger logger, string tile, float scale);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Focused {Tile}.")]
+    private static partial void logTileFocused(ILogger logger, string tile);
 }
 
 internal sealed partial class DraggableCard : Container
@@ -869,7 +909,7 @@ internal sealed partial class DraggableCard : Container
             Position += Parent.ToLocalSpace(e.ScreenSpaceMousePosition) - Parent.ToLocalSpace(e.ScreenSpaceMouseDownPosition);
 
         updateVisuals();
-        game.Logger.LogInformation("Started dragging {Card}.", name);
+        logDragStarted(game.Logger, name);
         return true;
     }
 
@@ -884,7 +924,7 @@ internal sealed partial class DraggableCard : Container
     protected override void OnDragEnd(DragEndEvent e)
     {
         updateVisuals();
-        game.Logger.LogInformation("Finished dragging {Card} at ({X:0.0}, {Y:0.0}).", name, Position.X, Position.Y);
+        logDragFinished(game.Logger, name, Position.X, Position.Y);
     }
 
     protected override void OnFocus(FocusEvent e) => updateVisuals();
@@ -938,6 +978,12 @@ internal sealed partial class DraggableCard : Container
 
         dragStrip.Color = IsDragged ? Color4.YELLOW : new Color4(0.95f, 0.95f, 0.98f, 0.35f);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Started dragging {Card}.")]
+    private static partial void logDragStarted(ILogger logger, string card);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Finished dragging {Card} at ({X:0.0}, {Y:0.0}).")]
+    private static partial void logDragFinished(ILogger logger, string card, float x, float y);
 }
 
 internal sealed partial class FocusTargetTile : Container
@@ -1008,7 +1054,7 @@ internal sealed partial class FocusTargetTile : Container
     protected override void OnFocus(FocusEvent e)
     {
         updateVisuals();
-        game.Logger.LogInformation("Focus switched to {Target}.", name);
+        logFocusSwitched(game.Logger, name);
     }
 
     protected override void OnFocusLost(FocusLostEvent e) => updateVisuals();
@@ -1033,6 +1079,9 @@ internal sealed partial class FocusTargetTile : Container
                 ? new Color4(0.24f, 0.30f, 0.42f, 1f)
                 : new Color4(0.20f, 0.25f, 0.36f, 1f);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Focus switched to {Target}.")]
+    private static partial void logFocusSwitched(ILogger logger, string target);
 }
 
 internal sealed partial class TextInputFocusTile : Container
@@ -1117,7 +1166,7 @@ internal sealed partial class TextInputFocusTile : Container
     protected override void OnFocus(FocusEvent e)
     {
         updateVisuals();
-        game.Logger.LogInformation("Focused {Target} (text input active).", name);
+        logTextInputFocused(game.Logger, name);
     }
 
     protected override void OnFocusLost(FocusLostEvent e) => updateVisuals();
@@ -1130,7 +1179,7 @@ internal sealed partial class TextInputFocusTile : Container
             buffer = buffer[^24..];
 
         updateVisuals();
-        game.Logger.LogInformation("{Target} received text '{Text}' (buffer='{Buffer}').", name, e.Text, buffer);
+        logTextReceived(game.Logger, name, e.Text, buffer);
         return true;
     }
 
@@ -1167,4 +1216,10 @@ internal sealed partial class TextInputFocusTile : Container
                 : new Color4(0.18f, 0.23f, 0.32f, 1f);
         activityMeter.Width = MathF.Min(1f, buffer.Length / 24f);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Focused {Target} (text input active).")]
+    private static partial void logTextInputFocused(ILogger logger, string target);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Target} received text '{Text}' (buffer='{Buffer}').")]
+    private static partial void logTextReceived(ILogger logger, string target, string text, string buffer);
 }
