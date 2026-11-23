@@ -541,7 +541,7 @@ public class CompositeDrawable : Drawable
         {
             var child = updateBuffer[i];
 
-            if (ReferenceEquals(child.Parent, this))
+            if (ReferenceEquals(child.Parent, this) && (child.IsAlive || child.ShouldBeAlive || child.HasCustomClock))
                 child.UpdateSubTree();
         }
 
@@ -552,6 +552,8 @@ public class CompositeDrawable : Drawable
     /// <inheritdoc />
     protected override void UpdateAfterChildren()
     {
+        checkChildrenLife();
+
         if (AutoSizeAxes == Axes.None)
             return;
 
@@ -796,6 +798,21 @@ public class CompositeDrawable : Drawable
             pendingAsyncLoads ??= [];
             pendingAsyncLoads.Add(pendingLoad);
             return true;
+        }
+    }
+
+    private void checkChildrenLife()
+    {
+        for (var i = internalChildren.Count - 1; i >= 0; i--)
+        {
+            if (i >= internalChildren.Count)
+                continue;
+
+            var child = internalChildren[i];
+            var nowAlive = child.SyncIsAlive();
+
+            if (!nowAlive && child.RemoveWhenNotAlive && child.Time >= child.LifetimeEnd)
+                RemoveInternal(child, disposeImmediately: true);
         }
     }
 

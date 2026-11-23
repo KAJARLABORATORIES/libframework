@@ -354,9 +354,62 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
-    /// Gets a value indicating whether this drawable is considered present (<see cref="Alpha"/> &gt; 0 or <see cref="AlwaysPresent"/>).
+    /// Gets or sets the clock time in milliseconds at which this drawable becomes alive.
+    /// Defaults to <see cref="double.MinValue"/>.
     /// </summary>
-    public virtual bool IsPresent => Alpha > 0f || AlwaysPresent;
+    public double LifetimeStart
+    {
+        get => field;
+        set
+        {
+            if (double.IsNaN(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LifetimeStart cannot be NaN.");
+
+            if (field == value)
+                return;
+
+            field = value;
+            SyncIsAlive();
+        }
+    } = double.MinValue;
+
+    /// <summary>
+    /// Gets or sets the clock time in milliseconds at which this drawable expires and is no longer alive.
+    /// Defaults to <see cref="double.MaxValue"/>.
+    /// </summary>
+    public double LifetimeEnd
+    {
+        get => field;
+        set
+        {
+            if (double.IsNaN(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LifetimeEnd cannot be NaN.");
+
+            if (field == value)
+                return;
+
+            field = value;
+            SyncIsAlive();
+        }
+    } = double.MaxValue;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable is currently within <c>[LifetimeStart, LifetimeEnd)</c>.
+    /// </summary>
+    public bool IsAlive { get; private set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a parent <see cref="CompositeDrawable"/> automatically removes and
+    /// disposes this drawable once <see cref="Time"/> reaches or exceeds <see cref="LifetimeEnd"/>.
+    /// Defaults to <see langword="true"/>.
+    /// </summary>
+    public virtual bool RemoveWhenNotAlive { get; set; } = true;
+
+    /// <summary>
+    /// Gets a value indicating whether this drawable is considered present (<see cref="IsAlive"/> and either
+    /// <see cref="Alpha"/> &gt; 0 or <see cref="AlwaysPresent"/>).
+    /// </summary>
+    public virtual bool IsPresent => IsAlive && (Alpha > 0f || AlwaysPresent);
 
     /// <summary>
     /// Gets the parent <see cref="Drawable"/> containing this drawable, or <see langword="null"/> if unattached.
@@ -762,6 +815,11 @@ public class Drawable : IDisposable
     }
 
     /// <summary>
+    /// Marks this drawable as expired at the current <see cref="Time"/> by setting <see cref="LifetimeEnd"/> to <see cref="Time"/>.
+    /// </summary>
+    public void Expire() => LifetimeEnd = Time;
+
+    /// <summary>
     /// Schedules <paramref name="action"/> to execute on the update thread during the next <see cref="UpdateSubTree"/> pass.
     /// </summary>
     public ScheduledDelegate Schedule(Action action)
@@ -902,6 +960,12 @@ public class Drawable : IDisposable
         if (customClock is not null && ProcessCustomClock)
             customClock.ProcessFrame();
 
+        var wasAlive = IsAlive;
+        var nowAlive = SyncIsAlive();
+
+        if (!wasAlive && !nowAlive)
+            return true;
+
         if (Interlocked.CompareExchange(ref loadState, (int)LoadState.Loaded, (int)LoadState.Ready) == (int)LoadState.Ready)
         {
             LoadComplete();
@@ -927,6 +991,11 @@ public class Drawable : IDisposable
                 return false;
         }
 
+        nowAlive = SyncIsAlive();
+
+        if (!nowAlive)
+            return true;
+
         Update();
 
         if (IsDisposed)
@@ -946,6 +1015,26 @@ public class Drawable : IDisposable
     }
 
     internal long ChildID { get; set; }
+
+    internal bool HasCustomClock => customClock is not null && ProcessCustomClock;
+
+    internal bool ShouldBeAlive => Time >= LifetimeStart && Time < LifetimeEnd;
+
+    internal bool SyncIsAlive()
+    {
+        var nowAlive = ShouldBeAlive;
+
+        if (IsAlive == nowAlive)
+            return nowAlive;
+
+        var wasPresent = IsPresent;
+        IsAlive = nowAlive;
+
+        if (wasPresent != IsPresent)
+            Invalidate(Invalidation.Presence);
+
+        return nowAlive;
+    }
 
     internal bool Load(IReadOnlyDependencyCollection parentDependencies)
         => LoadCore(parentDependencies, CancellationToken.None);
@@ -1353,6 +1442,7 @@ public class Drawable : IDisposable
     protected internal virtual void UpdateClock(IFrameBasedClock? clock)
     {
         inheritedClock = customClock is null ? clock : null;
+        SyncIsAlive();
     }
 
     /// <summary>
