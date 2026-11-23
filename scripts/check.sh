@@ -48,11 +48,11 @@ fi
 echo "==> dotnet restore"
 dotnet restore
 
-echo "==> dotnet format --verify-no-changes --no-restore"
-dotnet format --verify-no-changes --no-restore
-
 echo "==> dotnet build -c Release --no-restore"
 dotnet build -c Release --no-restore
+
+echo "==> dotnet format --verify-no-changes --no-restore (Release)"
+Configuration=Release dotnet format --verify-no-changes --no-restore
 
 echo "==> dotnet test -c Release --no-build"
 dotnet test -c Release --no-build

@@ -53,10 +53,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
       - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
       - name: Verify formatting
         if: matrix.os == 'ubuntu-latest'
+        env:
+          Configuration: Release
         run: dotnet format --verify-no-changes --no-restore
-      - run: dotnet build -c Release --no-restore
       - name: Run tests
         run: dotnet test -c Release --no-build --output Detailed --timeout 2m
       - name: Publish NativeAOT smoke sample
