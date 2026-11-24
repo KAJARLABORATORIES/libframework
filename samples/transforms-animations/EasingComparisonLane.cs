@@ -75,9 +75,9 @@ internal sealed class EasingComparisonLane : Container
         marker.Alpha = 0f;
         trail.Width = 0f;
 
-        using (this.BeginDelayedSequence(staggerDelayMs))
+        if (bezierEasing is { } bezier)
         {
-            if (bezierEasing is { } bezier)
+            using (marker.BeginDelayedSequence(staggerDelayMs))
             {
                 marker.FadeIn(140)
                     .Then()
@@ -87,7 +87,10 @@ internal sealed class EasingComparisonLane : Container
                     .MoveToX(24f, 700, bezier)
                     .ScaleTo(1f, 700, bezier)
                     .Loop(pause: 350);
+            }
 
+            using (trail.BeginDelayedSequence(staggerDelayMs))
+            {
                 trail.ResizeWidthTo(0f)
                     .Delay(140)
                     .ResizeWidthTo(track_travel, 1200, bezier)
@@ -95,10 +98,13 @@ internal sealed class EasingComparisonLane : Container
                     .ResizeWidthTo(0f, 700, bezier)
                     .Loop(pause: 350);
             }
-            else
-            {
-                var easing = standardEasing ?? Easing.None;
+        }
+        else
+        {
+            var easing = standardEasing ?? Easing.None;
 
+            using (marker.BeginDelayedSequence(staggerDelayMs))
+            {
                 marker.FadeIn(140)
                     .Then()
                     .MoveToX(24f + track_travel, 1200, easing)
@@ -107,7 +113,10 @@ internal sealed class EasingComparisonLane : Container
                     .MoveToX(24f, 700, easing)
                     .ScaleTo(1f, 700, easing)
                     .Loop(pause: 350);
+            }
 
+            using (trail.BeginDelayedSequence(staggerDelayMs))
+            {
                 trail.ResizeWidthTo(0f)
                     .Delay(140)
                     .ResizeWidthTo(track_travel, 1200, easing)
