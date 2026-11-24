@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Runtime.InteropServices;
+using kajarlabs.Framework.Numerics;
 
 namespace kajarlabs.Framework.Scene.Transforms;
 
@@ -9,8 +11,14 @@ internal sealed class DrawableTransformState : IDrawableExtension
 
     private readonly List<TransformEntry> entries = [];
     private List<PendingNotification>? pendingNotifications;
+    private Dictionary<int, ISequenceTracker>? sequenceTrackers;
     private long nextCreationOrder;
     private double lastUpdateTime = double.NaN;
+    private double activeSequenceStartTime;
+    private int nextSequenceId;
+    private int nextScopeToken;
+    private int activeScopeToken;
+    private bool hasActiveSequenceStartTime;
     private bool isDisposed;
     private bool isDrainingNotifications;
 
@@ -45,6 +53,312 @@ internal sealed class DrawableTransformState : IDrawableExtension
     {
         ArgumentNullException.ThrowIfNull(drawable);
         return drawable.TryGetExtension(out state);
+    }
+
+    public int AllocateSequenceId() => ++nextSequenceId;
+
+    public double GetCurrentStartTime(Drawable target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return hasActiveSequenceStartTime ? activeSequenceStartTime : target.Time;
+    }
+
+    public TransformSequenceScope EnterDelayedSequence(Drawable target, double delay)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(isDisposed || target.IsDisposed, target);
+
+        if (!double.IsFinite(delay))
+            throw new ArgumentOutOfRangeException(nameof(delay), delay, "Delay must be finite.");
+
+        var baseTime = GetCurrentStartTime(target);
+        var newStartTime = baseTime + delay;
+
+        if (!double.IsFinite(newStartTime))
+            throw new ArgumentOutOfRangeException(nameof(delay), delay, "Delayed sequence start time must be finite.");
+
+        return pushSequenceScope(target, newStartTime);
+    }
+
+    public TransformSequenceScope EnterAbsoluteSequence(Drawable target, double newTransformStartTime)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(isDisposed || target.IsDisposed, target);
+
+        if (!double.IsFinite(newTransformStartTime))
+            throw new ArgumentOutOfRangeException(nameof(newTransformStartTime), newTransformStartTime, "Transform start time must be finite.");
+
+        return pushSequenceScope(target, newTransformStartTime);
+    }
+
+    public void ExitSequenceScope(
+        Drawable target,
+        int scopeToken,
+        int previousScopeToken,
+        bool hadPreviousStartTime,
+        double previousStartTime)
+    {
+        if (isDisposed || target.IsDisposed || activeScopeToken != scopeToken)
+            return;
+
+        hasActiveSequenceStartTime = hadPreviousStartTime;
+        activeSequenceStartTime = previousStartTime;
+        activeScopeToken = previousScopeToken;
+    }
+
+    public SequenceTracker<TDrawable> GetOrAddSequenceTracker<TDrawable>(Drawable target, int sequenceId)
+        where TDrawable : Drawable
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(isDisposed || target.IsDisposed, target);
+
+        sequenceTrackers ??= [];
+
+        if (sequenceTrackers.TryGetValue(sequenceId, out var existing))
+            return (SequenceTracker<TDrawable>)existing;
+
+        var tracker = new SequenceTracker<TDrawable>(sequenceId, this);
+        sequenceTrackers.Add(sequenceId, tracker);
+
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref var entry = ref span[i];
+
+            if (entry.SequenceId == sequenceId && entry.Observer is null)
+                entry.Observer = tracker;
+        }
+
+        return tracker;
+    }
+
+    public void RemoveSequenceTracker(int sequenceId)
+        => sequenceTrackers?.Remove(sequenceId);
+
+    public bool HasActiveEntriesForSequence(int sequenceId)
+    {
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            if (span[i].SequenceId == sequenceId && !span[i].IsCompleted)
+                return true;
+        }
+
+        return false;
+    }
+
+    public void CancelSequenceEntriesOnAbort(int sequenceId)
+    {
+        if (sequenceId == 0)
+            return;
+
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref var entry = ref span[i];
+
+            if (entry.SequenceId != sequenceId)
+                continue;
+
+            entry.RemainingLoops = 0;
+
+            if (entry.BuiltInTarget == BuiltInTransformTarget.None && !entry.IsCustom)
+                entry.Flags |= TransformEntryFlags.Completed | TransformEntryFlags.Aborted | TransformEntryFlags.ObserverNotified;
+        }
+    }
+
+    public void EnsureSequenceDelayBarrier(Drawable target, int sequenceId, double endTime)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(isDisposed || target.IsDisposed, target);
+
+        if (!double.IsFinite(endTime))
+            return;
+
+        var maxEndTime = double.NegativeInfinity;
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref readonly var entry = ref span[i];
+
+            if (entry.SequenceId != sequenceId || entry.IsCompleted)
+                continue;
+
+            if (entry.EffectiveEndTime > maxEndTime)
+                maxEndTime = entry.EffectiveEndTime;
+        }
+
+        if (endTime > maxEndTime)
+            AddBuiltInTransform(target, BuiltInTransformTarget.None, default, endTime, 0.0, sequenceId: sequenceId);
+    }
+
+    public double ApplyLoopToSequence(
+        Drawable target,
+        int sequenceId,
+        double originTime,
+        double singleIterationEndTime,
+        double pause,
+        int numIterations)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ObjectDisposedException.ThrowIf(isDisposed || target.IsDisposed, target);
+
+        if (!double.IsFinite(pause) || pause < 0.0)
+            throw new ArgumentOutOfRangeException(nameof(pause), pause, "Loop pause must be a finite non-negative number.");
+
+        if (numIterations != -1 && numIterations < 1)
+            throw new ArgumentOutOfRangeException(nameof(numIterations), numIterations, "Number of loop iterations must be -1 (infinite) or at least 1.");
+
+        var remainingLoops = numIterations == -1 ? -1 : numIterations - 1;
+        var iterationDuration = singleIterationEndTime - originTime;
+        var loopDelay = iterationDuration + pause;
+
+        if (remainingLoops != 0 && (!double.IsFinite(loopDelay) || loopDelay <= 0.0))
+            throw new ArgumentOutOfRangeException(nameof(pause), pause, "Total loop duration (sequence duration + pause) must be finite and greater than zero.");
+
+        if (remainingLoops == 0)
+            return singleIterationEndTime;
+
+        EnsureSequenceDelayBarrier(target, sequenceId, singleIterationEndTime);
+
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref var entry = ref span[i];
+
+            if (entry.SequenceId != sequenceId || entry.IsCompleted)
+                continue;
+
+            entry.LoopDelay = loopDelay;
+            entry.RemainingLoops = remainingLoops;
+        }
+
+        if (remainingLoops < 0)
+            return double.PositiveInfinity;
+
+        var finalEndTime = singleIterationEndTime + (remainingLoops * loopDelay);
+        if (!double.IsFinite(finalEndTime))
+            throw new ArgumentOutOfRangeException(nameof(numIterations), numIterations, "Looped sequence end time exceeds finite range.");
+
+        return finalEndTime;
+    }
+
+    public Color4 ResolveEffectiveColorForFlash(Drawable target, double atTime)
+    {
+        var result = target.Color;
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref readonly var entry = ref span[i];
+
+            if (entry.IsCompleted || entry.IsAborted || entry.HasAbortTime || entry.StartTime > atTime)
+                continue;
+
+            if (!entry.IsCustom && entry.BuiltInTarget == BuiltInTransformTarget.Color)
+                result = entry.EndValue.AsColor4();
+        }
+
+        return result;
+    }
+
+    public Vector2 ResolveEffectivePositionAt(Drawable target, double atTime)
+    {
+        var result = target.Position;
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref readonly var entry = ref span[i];
+
+            if (entry.IsCompleted || entry.IsAborted || entry.IsCustom || entry.StartTime > atTime)
+                continue;
+
+            if (entry.BuiltInTarget is not (BuiltInTransformTarget.Position or BuiltInTransformTarget.X or BuiltInTransformTarget.Y))
+                continue;
+
+            var effectiveEnd = entry.EffectiveEndTime;
+
+            if (effectiveEnd <= atTime)
+            {
+                switch (entry.BuiltInTarget)
+                {
+                    case BuiltInTransformTarget.Position:
+                        result = entry.EndValue.AsVector2();
+                        break;
+
+                    case BuiltInTransformTarget.X:
+                        result.X = entry.EndValue.AsSingle();
+                        break;
+
+                    case BuiltInTransformTarget.Y:
+                        result.Y = entry.EndValue.AsSingle();
+                        break;
+                }
+            }
+            else if (entry.StartTime < atTime)
+            {
+                switch (entry.BuiltInTarget)
+                {
+                    case BuiltInTransformTarget.Position:
+                    {
+                        var start = entry.HasStartValue ? entry.StartValue.AsVector2() : result;
+                        result = Interpolation.ValueAt(atTime, start, entry.EndValue.AsVector2(), entry.StartTime, entry.EndTime, entry.Easing);
+                        break;
+                    }
+
+                    case BuiltInTransformTarget.X:
+                    {
+                        var start = entry.HasStartValue ? entry.StartValue.AsSingle() : result.X;
+                        result.X = Interpolation.ValueAt(atTime, start, entry.EndValue.AsSingle(), entry.StartTime, entry.EndTime, entry.Easing);
+                        break;
+                    }
+
+                    case BuiltInTransformTarget.Y:
+                    {
+                        var start = entry.HasStartValue ? entry.StartValue.AsSingle() : result.Y;
+                        result.Y = Interpolation.ValueAt(atTime, start, entry.EndValue.AsSingle(), entry.StartTime, entry.EndTime, entry.Easing);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public float ResolveEffectiveRotationAt(Drawable target, double atTime)
+    {
+        var result = target.Rotation;
+        var span = CollectionsMarshal.AsSpan(entries);
+
+        for (var i = 0; i < span.Length; i++)
+        {
+            ref readonly var entry = ref span[i];
+
+            if (entry.IsCompleted || entry.IsAborted || entry.IsCustom || entry.StartTime > atTime)
+                continue;
+
+            if (entry.BuiltInTarget != BuiltInTransformTarget.Rotation)
+                continue;
+
+            if (entry.EffectiveEndTime <= atTime)
+            {
+                result = entry.EndValue.AsSingle();
+            }
+            else if (entry.StartTime < atTime)
+            {
+                var start = entry.HasStartValue ? entry.StartValue.AsSingle() : result;
+                result = Interpolation.ValueAt(atTime, start, entry.EndValue.AsSingle(), entry.StartTime, entry.EndTime, entry.Easing);
+            }
+        }
+
+        return result;
     }
 
     public double GetLatestTransformEndTime(Drawable target)
@@ -87,6 +401,9 @@ internal sealed class DrawableTransformState : IDrawableExtension
         if ((uint)easing > (uint)Easing.OutPow10)
             throw new ArgumentOutOfRangeException(nameof(easing), easing, "Unsupported easing curve.");
 
+        if (observer is null && sequenceId != 0 && sequenceTrackers is not null && sequenceTrackers.TryGetValue(sequenceId, out var tracker))
+            observer = tracker;
+
         var flags = hasExplicitStartValue
             ? TransformEntryFlags.HasStartValue | TransformEntryFlags.ExplicitStartValue
             : TransformEntryFlags.None;
@@ -125,6 +442,9 @@ internal sealed class DrawableTransformState : IDrawableExtension
     {
         ArgumentNullException.ThrowIfNull(handler);
         validateScheduleParameters(target, startTime, duration, loopDelay, remainingLoops);
+
+        if (observer is null && sequenceId != 0 && sequenceTrackers is not null && sequenceTrackers.TryGetValue(sequenceId, out var tracker))
+            observer = tracker;
 
         var flags = hasExplicitStartValue
             ? TransformEntryFlags.HasStartValue | TransformEntryFlags.ExplicitStartValue
@@ -173,6 +493,7 @@ internal sealed class DrawableTransformState : IDrawableExtension
 
         entries.Clear();
         drainNotifications(target);
+        sequenceTrackers?.Clear();
     }
 
     public void ClearTransformsAfter(Drawable target, double time)
@@ -195,10 +516,17 @@ internal sealed class DrawableTransformState : IDrawableExtension
 
             if (entry.StartTime >= time)
             {
-                if (!entry.IsCompleted && entry.Observer is not null && !entry.IsObserverNotified)
+                if (!entry.IsCompleted)
                 {
-                    entry.Flags |= TransformEntryFlags.ObserverNotified;
-                    enqueueNotification(entry.Observer, isAbort: true);
+                    if (entry.Observer is not null && !entry.IsObserverNotified)
+                    {
+                        entry.Flags |= TransformEntryFlags.ObserverNotified;
+                        enqueueNotification(entry.Observer, isAbort: true);
+                    }
+                    else if (entry.SequenceId != 0)
+                    {
+                        cancelUnobservedSequenceInSpan(span, write, i + 1, entry.SequenceId);
+                    }
                 }
 
                 continue;
@@ -219,6 +547,10 @@ internal sealed class DrawableTransformState : IDrawableExtension
                     {
                         entry.Flags |= TransformEntryFlags.ObserverNotified;
                         enqueueNotification(entry.Observer, isAbort: true);
+                    }
+                    else if (entry.SequenceId != 0)
+                    {
+                        cancelUnobservedSequenceInSpan(span, write, i + 1, entry.SequenceId);
                     }
 
                     if (RemoveCompletedTransforms)
@@ -370,6 +702,10 @@ internal sealed class DrawableTransformState : IDrawableExtension
                     entry.Flags |= TransformEntryFlags.ObserverNotified;
                     enqueueNotification(entry.Observer, isAbort: true);
                 }
+                else if (entry.SequenceId != 0)
+                {
+                    CancelSequenceEntriesOnAbort(entry.SequenceId);
+                }
 
                 if (RemoveCompletedTransforms)
                     hasCompletedToRemove = true;
@@ -420,8 +756,11 @@ internal sealed class DrawableTransformState : IDrawableExtension
     public void OnDispose(Drawable target)
     {
         isDisposed = true;
+        hasActiveSequenceStartTime = false;
+        activeScopeToken = 0;
         entries.Clear();
         pendingNotifications?.Clear();
+        sequenceTrackers?.Clear();
     }
 
     private void addEntryCore(Drawable target, TransformEntry newEntry)
@@ -442,10 +781,17 @@ internal sealed class DrawableTransformState : IDrawableExtension
                 {
                     if (existing.StartTime >= newStartTime)
                     {
-                        if (!existing.IsCompleted && existing.Observer is not null && !existing.IsObserverNotified)
+                        if (!existing.IsCompleted)
                         {
-                            existing.Flags |= TransformEntryFlags.ObserverNotified;
-                            enqueueNotification(existing.Observer, isAbort: true);
+                            if (existing.Observer is not null && !existing.IsObserverNotified)
+                            {
+                                existing.Flags |= TransformEntryFlags.ObserverNotified;
+                                enqueueNotification(existing.Observer, isAbort: true);
+                            }
+                            else if (existing.SequenceId != 0)
+                            {
+                                cancelUnobservedSequenceInSpan(span, write, i + 1, existing.SequenceId);
+                            }
                         }
 
                         continue;
@@ -464,6 +810,10 @@ internal sealed class DrawableTransformState : IDrawableExtension
                             {
                                 existing.Flags |= TransformEntryFlags.ObserverNotified;
                                 enqueueNotification(existing.Observer, isAbort: true);
+                            }
+                            else if (existing.SequenceId != 0)
+                            {
+                                cancelUnobservedSequenceInSpan(span, write, i + 1, existing.SequenceId);
                             }
                         }
 
@@ -576,6 +926,37 @@ internal sealed class DrawableTransformState : IDrawableExtension
 
         if (write < entries.Count)
             entries.RemoveRange(write, entries.Count - write);
+    }
+
+    private TransformSequenceScope pushSequenceScope(Drawable target, double newStartTime)
+    {
+        var hadPrevious = hasActiveSequenceStartTime;
+        var previousStart = activeSequenceStartTime;
+        var previousToken = activeScopeToken;
+        var token = ++nextScopeToken;
+
+        hasActiveSequenceStartTime = true;
+        activeSequenceStartTime = newStartTime;
+        activeScopeToken = token;
+
+        return new TransformSequenceScope(target, this, hadPrevious, previousStart, token, previousToken);
+    }
+
+    private static void cancelUnobservedSequenceInSpan(Span<TransformEntry> span, int writtenCount, int nextReadIndex, int sequenceId)
+    {
+        for (var j = 0; j < writtenCount; j++)
+        {
+            ref var entry = ref span[j];
+            if (entry.SequenceId == sequenceId)
+                entry.RemainingLoops = 0;
+        }
+
+        for (var j = nextReadIndex; j < span.Length; j++)
+        {
+            ref var entry = ref span[j];
+            if (entry.SequenceId == sequenceId)
+                entry.RemainingLoops = 0;
+        }
     }
 
     private void enqueueNotification(ITransformObserver observer, bool isAbort)
