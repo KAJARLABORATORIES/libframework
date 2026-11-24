@@ -12,6 +12,7 @@ using kajarlabs.Framework.IO;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Scene;
+using kajarlabs.Framework.Scene.Transforms;
 using kajarlabs.Framework.Threading;
 using kajarlabs.Framework.Timing;
 using Microsoft.Extensions.Logging;
@@ -416,6 +417,34 @@ using (var phase5Host = new HeadlessGameHost())
     {
         throw new InvalidOperationException("Phase 5 end-to-end HeadlessGameHost input pipeline check failed under NativeAOT.");
     }
+}
+
+{
+    var outCubicValue = Interpolation.ValueAt(50.0, 0f, 100f, 0.0, 100.0, Easing.OutCubic);
+    var bezier = CubicBezierEasingFunction.EASE_IN_OUT;
+    var bezierValue = Interpolation.ValueAt(25.0, Vector2.Zero, new Vector2(100f, 200f), 0.0, 100.0, bezier);
+
+    if (outCubicValue <= 50f || outCubicValue >= 100f || bezierValue.X <= 0f || bezierValue.Y <= 0f)
+        throw new InvalidOperationException("Phase 6 easing or interpolation check failed under NativeAOT.");
+
+    using var phase6Host = new HeadlessGameHost();
+    using var phase6Game = new Phase6TransformsSmokeGame();
+    phase6Host.RunFrames(phase6Game, 12);
+
+    if (!phase6Game.ChainCompleted
+        || !phase6Game.LoopCompleted
+        || !phase6Game.AbortSignaled
+        || !phase6Game.FinallySignaled
+        || !phase6Game.TransientExpiredAndDisposed
+        || phase6Game.Hero.Position != new Vector2(120f, 60f)
+        || MathF.Abs(phase6Game.Hero.CustomMetric - 100f) > 0.001f
+        || MathF.Abs(phase6Game.BoundScale.Value - 2.5f) > 0.001f
+        || phase6Game.TransientStage.Children.Count != 0)
+    {
+        throw new InvalidOperationException("Phase 6 transforms sequence/loop/expire check failed under NativeAOT.");
+    }
+
+    Console.WriteLine("kajarlabs.Framework.Scene.Transforms verified under NativeAOT.");
 }
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
@@ -1196,5 +1225,112 @@ internal sealed class Phase5ActionHandler : Drawable, IKeyBindingHandler<Phase5S
                 ZoomReleased++;
                 break;
         }
+    }
+}
+
+internal sealed class SmokeAdjustableClock : IAdjustableClock
+{
+    public double CurrentTime { get; private set; }
+
+    public double Rate { get; set; } = 1.0;
+
+    public bool IsRunning { get; private set; } = true;
+
+    public void Start() => IsRunning = true;
+
+    public void Stop() => IsRunning = false;
+
+    public void Reset() => CurrentTime = 0.0;
+
+    public bool Seek(double position)
+    {
+        CurrentTime = position;
+        return true;
+    }
+
+    public void Advance(double deltaMs)
+    {
+        if (IsRunning)
+            CurrentTime += deltaMs * Rate;
+    }
+}
+
+internal sealed class Phase6SmokeBox : Box
+{
+    public float CustomMetric { get; set; }
+}
+
+internal sealed class Phase6TransformsSmokeGame : Game
+{
+    private readonly SmokeAdjustableClock manualClock = new();
+    private readonly Box loopBox = new() { Size = new Vector2(20f, 20f), Alpha = 0f };
+    private readonly Box interruptedBox = new() { Size = new Vector2(20f, 20f), Alpha = 0f };
+    private readonly Box transientBox = new() { Size = new Vector2(20f, 20f), Alpha = 1f };
+
+    public Container TransientStage { get; } = new() { Size = new Vector2(400f, 400f) };
+
+    public Phase6SmokeBox Hero { get; } = new() { Size = new Vector2(40f, 40f), Alpha = 0f, Position = Vector2.Zero };
+
+    public Bindable<float> BoundScale { get; } = new(1f);
+
+    public bool ChainCompleted { get; private set; }
+
+    public bool LoopCompleted { get; private set; }
+
+    public bool AbortSignaled { get; private set; }
+
+    public bool FinallySignaled { get; private set; }
+
+    public bool TransientExpiredAndDisposed => transientBox.IsDisposed;
+
+    protected override void Load()
+    {
+        var stage = new Container
+        {
+            Clock = new FramedClock(manualClock),
+            Size = new Vector2(400f, 400f),
+        };
+
+        stage.AddRange([Hero, loopBox, interruptedBox, TransientStage]);
+        TransientStage.Add(transientBox);
+        Root.Add(stage);
+
+        using (Hero.BeginDelayedSequence(50))
+        {
+            Hero.FadeIn(100, Easing.OutQuad)
+                .Then()
+                .MoveTo(new Vector2(120f, 60f), 150, CubicBezierEasingFunction.EASE_IN_OUT)
+                .TransformTo(static b => b.CustomMetric, static (b, v) => b.CustomMetric = v, 100f, 150, Easing.OutCubic)
+                .TransformBindableTo(BoundScale, 2.5f, 150, Easing.None)
+                .OnComplete(_ => ChainCompleted = true);
+        }
+
+        loopBox.FadeIn(50)
+            .Then()
+            .FadeOut(50)
+            .Loop(pause: 25, numIterations: 2)
+            .OnComplete(_ => LoopCompleted = true);
+
+        interruptedBox.FadeIn(200)
+            .OnAbort(_ => AbortSignaled = true)
+            .Finally(_ => FinallySignaled = true);
+
+        transientBox.FadeOut(150, Easing.InQuad).Expire();
+    }
+
+    protected override void Update()
+    {
+        manualClock.Advance(50);
+
+        if (Math.Abs(manualClock.CurrentTime - 100.0) < 0.001)
+            interruptedBox.FadeOut(50);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            BoundScale.UnbindAll();
+
+        base.Dispose(disposing);
     }
 }

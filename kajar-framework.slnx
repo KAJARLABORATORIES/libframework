@@ -6,6 +6,7 @@
     <Project Path="samples/nested-containers/kajarlabs.Framework.Samples.NestedContainers.csproj" />
     <Project Path="samples/reactive-components/kajarlabs.Framework.Samples.ReactiveComponents.csproj" />
     <Project Path="samples/sprite-batch-benchmark/kajarlabs.Framework.Samples.SpriteBatchBenchmark.csproj" />
+    <Project Path="samples/transforms-animations/kajarlabs.Framework.Samples.TransformsAnimations.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/framework/kajarlabs.Framework.Tests.csproj" />

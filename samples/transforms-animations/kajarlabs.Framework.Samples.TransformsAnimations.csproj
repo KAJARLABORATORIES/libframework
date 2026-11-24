@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="C#">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\libs\framework\kajarlabs.Framework.csproj" />
+    <ProjectReference Include="..\..\libs\transforms\kajarlabs.Framework.Scene.Transforms.csproj" />
+  </ItemGroup>
+</Project>
