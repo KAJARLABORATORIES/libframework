@@ -46,6 +46,9 @@ internal static class BuiltInTransformHelper
     {
         switch (target)
         {
+            case BuiltInTransformTarget.None:
+                return BuiltInTransformMask.None;
+
             case BuiltInTransformTarget.Alpha:
                 return BuiltInTransformMask.Alpha;
 
@@ -103,6 +106,9 @@ internal static class BuiltInTransformHelper
     {
         switch (property)
         {
+            case BuiltInTransformTarget.None:
+                return default;
+
             case BuiltInTransformTarget.Alpha:
                 return TransformValue.FromSingle(target.Alpha);
 
@@ -152,6 +158,9 @@ internal static class BuiltInTransformHelper
     {
         switch (property)
         {
+            case BuiltInTransformTarget.None:
+                break;
+
             case BuiltInTransformTarget.Alpha:
                 target.Alpha = value.AsSingle();
                 break;
@@ -235,6 +244,9 @@ internal static class BuiltInTransformHelper
     {
         switch (property)
         {
+            case BuiltInTransformTarget.None:
+                break;
+
             case BuiltInTransformTarget.Alpha:
                 target.Alpha = Interpolation.ValueAt(time, startValue.AsSingle(), endValue.AsSingle(), startTime, endTime, easing);
                 break;
