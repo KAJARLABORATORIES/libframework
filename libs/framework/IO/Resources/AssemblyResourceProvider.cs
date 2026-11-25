@@ -3,8 +3,8 @@ using System.Reflection;
 namespace kajarlabs.Framework.IO.Resources;
 
 /// <summary>
-/// A read-only, NativeAOT-safe <see cref="IResourceProvider"/> that serves embedded manifest resources from an
-/// explicit <see cref="Assembly"/> without runtime assembly scanning.
+/// A read-only <see cref="IResourceProvider"/> that serves embedded manifest resources from an explicit
+/// <see cref="Assembly"/>.
 /// </summary>
 public sealed class AssemblyResourceProvider : IResourceProvider
 {
