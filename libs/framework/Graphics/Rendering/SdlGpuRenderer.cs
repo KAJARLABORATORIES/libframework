@@ -18,6 +18,7 @@ internal sealed class SdlGpuRenderer : IHostRenderer
     private bool hasActiveFrame;
     private int lastFrameDrawCallCount;
     private int lastFrameQuadCount;
+    private int disposed;
 
     public SdlGpuRenderer(
         IGpuBackend backend,
@@ -61,6 +62,8 @@ internal sealed class SdlGpuRenderer : IHostRenderer
     {
         get
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+
             var manager = Volatile.Read(ref textureManager)
                 ?? throw new InvalidOperationException("Renderer texture manager is not initialized.");
 
@@ -84,6 +87,8 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 
     public ITexture CreateTexture(int width, int height)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+
         var manager = Volatile.Read(ref textureManager)
             ?? throw new InvalidOperationException("Renderer texture manager is not initialized.");
 
@@ -254,6 +259,9 @@ internal sealed class SdlGpuRenderer : IHostRenderer
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+
         Context.WaitForIdle();
         disposeRenderingCaches();
         Context.Dispose();

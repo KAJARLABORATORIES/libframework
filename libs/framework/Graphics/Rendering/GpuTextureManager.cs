@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.InteropServices;
 using kajarlabs.Framework.Numerics;
 
 namespace kajarlabs.Framework.Graphics.Rendering;
@@ -162,25 +163,37 @@ internal sealed class GpuTextureManager : IDisposable
             if (mappedPtr == nint.Zero)
                 throw new InvalidOperationException("Failed to map SDL_GPUTransferBuffer for texture upload.");
 
+            var stagedCount = 0;
+
             try
             {
+                var drainedSpan = CollectionsMarshal.AsSpan(drainedUploads);
                 var writeOffset = 0;
 
-                for (var i = 0; i < drainedUploads.Count; i++)
+                for (var i = 0; i < drainedSpan.Length; i++)
                 {
-                    var upload = drainedUploads[i];
+                    ref var upload = ref drainedSpan[i];
 
                     if (upload.Texture.IsDisposed)
                         continue;
 
+                    if ((ulong)writeOffset + (uint)upload.ByteCount > totalBytes)
+                        continue;
+
                     backend.CopyToMappedBuffer(mappedPtr, writeOffset, upload.Buffer, 0, upload.ByteCount);
+                    upload.TransferOffset = (uint)writeOffset;
+                    upload.IsStaged = true;
                     writeOffset += upload.ByteCount;
+                    stagedCount++;
                 }
             }
             finally
             {
                 backend.UnmapTransferBuffer(device, transferBuffer);
             }
+
+            if (stagedCount == 0)
+                return;
 
             var copyPass = backend.BeginCopyPass(commandBuffer);
 
@@ -189,18 +202,18 @@ internal sealed class GpuTextureManager : IDisposable
 
             try
             {
-                uint readOffset = 0;
+                var drainedSpan = CollectionsMarshal.AsSpan(drainedUploads);
 
-                for (var i = 0; i < drainedUploads.Count; i++)
+                for (var i = 0; i < drainedSpan.Length; i++)
                 {
-                    var upload = drainedUploads[i];
+                    ref readonly var upload = ref drainedSpan[i];
 
-                    if (upload.Texture.IsDisposed)
+                    if (!upload.IsStaged || upload.Texture.IsDisposed)
                         continue;
 
                     var source = new GpuTextureUploadSource(
                         transferBuffer,
-                        readOffset,
+                        upload.TransferOffset,
                         (uint)upload.Region.Width,
                         (uint)upload.Region.Height);
 
@@ -217,7 +230,6 @@ internal sealed class GpuTextureManager : IDisposable
                         && upload.Region.Height == upload.Texture.Height;
 
                     backend.UploadToTexture(copyPass, in source, in destination, cycle: isFullTexture);
-                    readOffset += (uint)upload.ByteCount;
                 }
             }
             finally
@@ -341,35 +353,25 @@ internal sealed class GpuTextureManager : IDisposable
     {
         TextureValidation.ValidateDimensions(width, height);
 
-        lock (stateLock)
-            ObjectDisposedException.ThrowIf(disposed, this);
-
         var description = new GpuTextureDescription(
             (uint)width,
             (uint)height,
             backend.Rgba8TextureFormat,
             GpuTextureUsage.Sampler);
 
-        var handle = backend.CreateTexture(device, in description);
-
-        if (handle == nint.Zero)
-            throw new InvalidOperationException($"Failed to create SDL_GPUTexture ({width}x{height}).");
-
-        var texture = new GpuTexture(this, handle, width, height, allowUserDispose);
-
         lock (stateLock)
         {
-            if (disposed)
-            {
-                texture.MarkManagerDisposed();
-                backend.ReleaseTexture(device, handle);
-                throw new ObjectDisposedException(nameof(GpuTextureManager));
-            }
+            ObjectDisposedException.ThrowIf(disposed, this);
 
+            var handle = backend.CreateTexture(device, in description);
+
+            if (handle == nint.Zero)
+                throw new InvalidOperationException($"Failed to create SDL_GPUTexture ({width}x{height}).");
+
+            var texture = new GpuTexture(this, handle, width, height, allowUserDispose);
             liveTextures.Add(texture);
+            return texture;
         }
-
-        return texture;
     }
 
     private nint ensureUploadTransferBuffer(uint requiredBytes)
@@ -410,11 +412,28 @@ internal sealed class GpuTextureManager : IDisposable
         backend.ReleaseFence(device, batch.Fence);
     }
 
-    private readonly record struct PendingUpload(
-        GpuTexture Texture,
-        RectangleI Region,
-        byte[] Buffer,
-        int ByteCount);
+    private struct PendingUpload
+    {
+        public PendingUpload(GpuTexture texture, RectangleI region, byte[] buffer, int byteCount)
+        {
+            Texture = texture;
+            Region = region;
+            Buffer = buffer;
+            ByteCount = byteCount;
+        }
+
+        public GpuTexture Texture { get; }
+
+        public RectangleI Region { get; }
+
+        public byte[] Buffer { get; }
+
+        public int ByteCount { get; }
+
+        public uint TransferOffset { get; set; }
+
+        public bool IsStaged { get; set; }
+    }
 
     private readonly record struct RetiredBatch(
         nint Fence,
