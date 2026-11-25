@@ -10,6 +10,19 @@
     <EmbeddedResource Include="Graphics\Decoding\Fixtures\*">
       <LogicalName>kajarlabs.Framework.Tests.Graphics.Decoding.Fixtures.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="IO\Resources\Fixtures\UI\button.hover.txt" />
+    <EmbeddedResource Include="IO\Resources\Fixtures\hero-upper.txt">
+      <LogicalName>kajarlabs.Framework.Tests.IO.Resources.Fixtures.Collision.Hero.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="IO\Resources\Fixtures\hero-lower.txt">
+      <LogicalName>kajarlabs.Framework.Tests.IO.Resources.Fixtures.Collision.hero.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="IO\Resources\Fixtures\slash-asset.txt">
+      <LogicalName>CustomLogical/nested/slash-asset.txt</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="IO\Resources\Fixtures\override-target.txt">
+      <LogicalName>kajarlabs.Framework.Tests.IO.Resources.Fixtures.Textures.hero.txt</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
