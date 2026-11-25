@@ -248,41 +248,55 @@ public sealed class CompositeResourceProviderTests
 
         var ct = TestContext.Current.CancellationToken;
         var tasks = new List<Task>();
+        var transientProviders = new MemoryResourceProvider[100];
 
-        for (var r = 0; r < 6; r++)
+        for (var iter = 0; iter < transientProviders.Length; iter++)
         {
-            tasks.Add(Task.Run(async () =>
-            {
-                for (var iter = 0; iter < 150; iter++)
-                {
-                    Assert.True(composite.Exists("base/item"));
-                    var bytes = await composite.GetBytesAsync("base/item", ct);
-                    Assert.NotNull(bytes);
-
-                    using var stream = composite.GetStream("base/item");
-                    Assert.NotNull(stream);
-
-                    foreach (var _ in composite.GetAvailableResources())
-                    {
-                    }
-                }
-            }, ct));
+            var transient = new MemoryResourceProvider();
+            transient.Add("base/item.jpg", [(byte)iter]);
+            transientProviders[iter] = transient;
         }
 
-        tasks.Add(Task.Run(() =>
+        try
         {
-            for (var iter = 0; iter < 100; iter++)
+            for (var r = 0; r < 6; r++)
             {
-                using var transient = new MemoryResourceProvider();
-                transient.Add("base/item.jpg", [(byte)iter]);
+                tasks.Add(Task.Run(async () =>
+                {
+                    for (var iter = 0; iter < 150; iter++)
+                    {
+                        Assert.True(composite.Exists("base/item"));
+                        var bytes = await composite.GetBytesAsync("base/item", ct);
+                        Assert.NotNull(bytes);
 
-                composite.AddProvider(transient, leaveOpen: true);
-                composite.AddExtension(iter % 2 == 0 ? ".jpg" : ".webp");
-                composite.RemoveProvider(transient);
+                        using var stream = composite.GetStream("base/item");
+                        Assert.NotNull(stream);
+
+                        foreach (var _ in composite.GetAvailableResources())
+                        {
+                        }
+                    }
+                }, ct));
             }
-        }, ct));
 
-        await Task.WhenAll(tasks);
+            tasks.Add(Task.Run(() =>
+            {
+                for (var iter = 0; iter < transientProviders.Length; iter++)
+                {
+                    var transient = transientProviders[iter];
+                    composite.AddProvider(transient, leaveOpen: true);
+                    composite.AddExtension(iter % 2 == 0 ? ".jpg" : ".webp");
+                    composite.RemoveProvider(transient);
+                }
+            }, ct));
+
+            await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            for (var i = 0; i < transientProviders.Length; i++)
+                transientProviders[i].Dispose();
+        }
     }
 
     [Fact]

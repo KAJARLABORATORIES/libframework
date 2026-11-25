@@ -25,5 +25,6 @@
     <PackageReference Include="SDL3-CS.Windows" />
     <PackageReference Include="SDL3-CS.Linux" />
     <PackageReference Include="SDL3-CS.MacOS" />
+    <PackageReference Include="StbImageNext" />
   </ItemGroup>
 </Project>

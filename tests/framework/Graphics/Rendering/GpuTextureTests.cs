@@ -185,7 +185,232 @@ public sealed class GpuTextureTests
         Assert.True(backend.Events.LastIndexOf("ReleaseTexture") < backend.Events.IndexOf("DestroyDevice"));
     }
 
-    private sealed class TextureRecordingBackend : StubGpuBackend
+    [Fact]
+    public async Task ConcurrentTextureCreationAndUploadsWithShutdownNeverTouchDestroyedDevice()
+    {
+        var backend = new ConcurrentShutdownRecordingBackend();
+        using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
+        renderer.Initialize(fake_window);
+
+        var ct = TestContext.Current.CancellationToken;
+        using var startGate = new ManualResetEventSlim(false);
+        var workerTasks = new List<Task>();
+
+        for (var w = 0; w < 6; w++)
+        {
+            var workerId = w;
+            workerTasks.Add(Task.Run(() =>
+            {
+                startGate.Wait(ct);
+
+                for (var i = 0; i < 60; i++)
+                {
+                    try
+                    {
+                        var texture = renderer.CreateTexture(4, 4);
+                        var pixels = new byte[4 * 4 * 4];
+                        Array.Fill(pixels, (byte)(workerId + i));
+                        texture.SetData(pixels);
+
+                        if (i % 2 == 0)
+                            texture.Dispose();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        break;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        break;
+                    }
+                }
+            }, ct));
+        }
+
+        startGate.Set();
+
+        // Pump several frames concurrently while background threads create and upload textures.
+        for (var frame = 0; frame < 8; frame++)
+        {
+            renderer.BeginFrame();
+            renderer.EndFrame();
+            await Task.Delay(1, ct);
+        }
+
+        // Shutdown while workers may still be racing to call CreateTexture/SetData.
+        renderer.Shutdown();
+        await Task.WhenAll(workerTasks);
+
+        Assert.False(backend.SawTextureCallAfterDestroyDevice);
+        Assert.Equal(backend.CreatedSamplerTextures.Order(), backend.ReleasedTextures.Order());
+    }
+
+    [Fact]
+    public void DisposingTextureBetweenCopyAndUploadPreservesTransferOffsetOfSubsequentUploads()
+    {
+        var backend = new MidFlushDisposeBackend();
+        using var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
+        renderer.Initialize(fake_window);
+
+        // Drain initial WhitePixel upload.
+        renderer.BeginFrame();
+        renderer.EndFrame();
+        backend.Uploads.Clear();
+
+        using var first = renderer.CreateTexture(2, 2);
+        using var second = renderer.CreateTexture(2, 2);
+
+        var firstPixels = new byte[2 * 2 * 4];
+        Array.Fill(firstPixels, (byte)0x11);
+
+        var secondPixels = new byte[2 * 2 * 4];
+        Array.Fill(secondPixels, (byte)0x77);
+
+        first.SetData(firstPixels);
+        second.SetData(secondPixels);
+
+        // Dispose the first texture right when UnmapTransferBuffer runs (between staging copy and CopyPass upload).
+        backend.OnUnmapTransferBuffer = first.Dispose;
+
+        renderer.BeginFrame();
+        renderer.EndFrame();
+
+        Assert.Single(backend.Uploads);
+        Assert.Equal(secondPixels, backend.Uploads[0].PixelBytes);
+    }
+
+    [Fact]
+    public async Task NullRendererSupportsConcurrentTextureCreationAndUploadsAndRejectsPostDisposal()
+    {
+        var renderer = new NullRenderer(800, 600);
+        var ct = TestContext.Current.CancellationToken;
+        var tasks = new List<Task>();
+
+        for (var w = 0; w < 6; w++)
+        {
+            var workerId = w;
+            tasks.Add(Task.Run(() =>
+            {
+                var pixels = new byte[4 * 4 * 4];
+                Array.Fill(pixels, (byte)workerId);
+
+                for (var i = 0; i < 80; i++)
+                {
+                    using var tex = renderer.CreateTexture(4, 4);
+                    tex.SetData(pixels);
+                    tex.SetData(new RectangleI(1, 1, 2, 2), new byte[2 * 2 * 4]);
+                }
+            }, ct));
+        }
+
+        await Task.WhenAll(tasks);
+
+        renderer.Dispose();
+        renderer.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => renderer.CreateTexture(2, 2));
+    }
+
+    [Fact]
+    public void SdlGpuRendererRejectsTextureOperationsAfterDispose()
+    {
+        var backend = new TextureRecordingBackend();
+        var renderer = new SdlGpuRenderer(backend, NullLogger.Instance);
+        renderer.Initialize(fake_window);
+
+        renderer.Dispose();
+        renderer.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => renderer.CreateTexture(2, 2));
+        Assert.Throws<ObjectDisposedException>(() => _ = renderer.WhitePixel);
+    }
+
+    private sealed class ConcurrentShutdownRecordingBackend : StubGpuBackend
+    {
+        private readonly Lock backendLock = new();
+        private readonly Dictionary<nint, byte[]> mappedBuffers = [];
+        private int deviceDestroyed;
+
+        public bool SawTextureCallAfterDestroyDevice { get; private set; }
+
+        public List<nint> CreatedSamplerTextures { get; } = [];
+
+        public List<nint> ReleasedTextures { get; } = [];
+
+        public override nint CreateTexture(nint device, in GpuTextureDescription description)
+        {
+            var handle = NextHandle();
+
+            lock (backendLock)
+            {
+                if (Volatile.Read(ref deviceDestroyed) != 0)
+                    SawTextureCallAfterDestroyDevice = true;
+
+                if ((description.Usage & GpuTextureUsage.ColorTarget) == 0)
+                    CreatedSamplerTextures.Add(handle);
+            }
+
+            return handle;
+        }
+
+        public override void ReleaseTexture(nint device, nint texture)
+        {
+            lock (backendLock)
+            {
+                if (Volatile.Read(ref deviceDestroyed) != 0)
+                    SawTextureCallAfterDestroyDevice = true;
+
+                if (CreatedSamplerTextures.Contains(texture))
+                    ReleasedTextures.Add(texture);
+            }
+        }
+
+        public override void DestroyDevice(nint device)
+        {
+            lock (backendLock)
+                Volatile.Write(ref deviceDestroyed, 1);
+        }
+
+        public override nint CreateTransferBuffer(nint device, GpuTransferBufferUsage usage, uint sizeInBytes)
+        {
+            var handle = NextHandle();
+
+            lock (backendLock)
+                mappedBuffers[handle] = new byte[sizeInBytes];
+
+            return handle;
+        }
+
+        public override void ReleaseTransferBuffer(nint device, nint transferBuffer)
+        {
+            lock (backendLock)
+                mappedBuffers.Remove(transferBuffer);
+        }
+
+        public override nint MapTransferBuffer(nint device, nint transferBuffer, bool cycle) => transferBuffer;
+
+        public override void CopyToMappedBuffer(nint mappedDestination, int byteOffset, byte[] source, int sourceOffset, int byteCount)
+        {
+            lock (backendLock)
+                Buffer.BlockCopy(source, sourceOffset, mappedBuffers[mappedDestination], byteOffset, byteCount);
+        }
+    }
+
+    private sealed class MidFlushDisposeBackend : TextureRecordingBackend
+    {
+        public Action? OnUnmapTransferBuffer { get; set; }
+
+        public override void UnmapTransferBuffer(nint device, nint transferBuffer)
+        {
+            base.UnmapTransferBuffer(device, transferBuffer);
+
+            var callback = OnUnmapTransferBuffer;
+            OnUnmapTransferBuffer = null;
+            callback?.Invoke();
+        }
+    }
+
+    private class TextureRecordingBackend : StubGpuBackend
     {
         private readonly Dictionary<nint, byte[]> mappedBuffers = [];
 

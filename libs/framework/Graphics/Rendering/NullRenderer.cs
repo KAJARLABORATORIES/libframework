@@ -20,6 +20,7 @@ internal sealed class NullRenderer : IHostRenderer
     private TextureSamplerParameters currentSampler = TextureSamplerParameters.LINEAR_CLAMP;
     private RectangleI? currentScissor;
     private Matrix4x4? currentProjection;
+    private int disposed;
 
     public NullRenderer(int initialWidth = 0, int initialHeight = 0)
     {
@@ -61,6 +62,7 @@ internal sealed class NullRenderer : IHostRenderer
 
     public ITexture CreateTexture(int width, int height)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         TextureValidation.ValidateDimensions(width, height);
         return new NullTexture(width, height);
     }
@@ -236,6 +238,9 @@ internal sealed class NullRenderer : IHostRenderer
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+
         whitePixel.ForceDispose();
     }
 
