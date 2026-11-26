@@ -211,6 +211,9 @@ internal sealed class GpuQuadBatcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(texture);
 
+        while (texture is ITextureWrapper wrapper)
+            texture = wrapper.Underlying;
+
         if (texture is not GpuTexture gpuTexture)
             throw new ArgumentException("Texture does not belong to this GPU renderer.", nameof(texture));
 

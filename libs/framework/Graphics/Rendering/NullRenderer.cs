@@ -159,6 +159,9 @@ internal sealed class NullRenderer : IHostRenderer
     {
         ArgumentNullException.ThrowIfNull(texture);
 
+        while (texture is ITextureWrapper wrapper)
+            texture = wrapper.Underlying;
+
         if (texture is not NullTexture nullTexture)
             throw new ArgumentException("Texture does not belong to this headless renderer.", nameof(texture));
 
