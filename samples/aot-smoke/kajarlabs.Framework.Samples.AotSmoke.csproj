@@ -14,4 +14,7 @@
     <ProjectReference Include="..\..\libs\framework\kajarlabs.Framework.csproj" />
     <ProjectReference Include="..\..\libs\transforms\kajarlabs.Framework.Scene.Transforms.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Textures\*" />
+  </ItemGroup>
 </Project>
