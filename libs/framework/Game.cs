@@ -1,8 +1,10 @@
 using System.Numerics;
 using kajarlabs.Framework.DependencyInjection;
+using kajarlabs.Framework.Graphics;
 using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Input;
 using kajarlabs.Framework.IO;
+using kajarlabs.Framework.IO.Resources;
 using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Scene;
 using kajarlabs.Framework.Threading;
@@ -18,6 +20,8 @@ public class Game : IDisposable
     private readonly TripleBuffer<DrawNode?> drawNodeBuffer = new();
     private readonly List<PlatformInputEvent> frameInputEvents = [];
     private GameHost? host;
+    private CompositeResourceProvider? textureResourceScope;
+    private TextureCache? textures;
     private bool disposed;
 
     /// <summary>
@@ -75,6 +79,20 @@ public class Game : IDisposable
     public IRenderer Renderer => Host.Renderer;
 
     /// <summary>
+    /// Gets the root <see cref="CompositeResourceProvider"/> for this game. Subclasses may register embedded or
+    /// disk resource providers before or during <see cref="Load"/>.
+    /// </summary>
+    public CompositeResourceProvider Resources { get; } = new();
+
+    /// <summary>
+    /// Gets the root <see cref="TextureCache"/> initialized for this game before <see cref="Load"/>, probing the
+    /// <c>Textures/</c> namespace first and falling back to the root of <see cref="Resources"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when accessed before the game is loaded by a host.</exception>
+    public TextureCache Textures
+        => textures ?? throw new InvalidOperationException("Game textures are not initialized until the game is loaded by a GameHost.");
+
+    /// <summary>
     /// Gets the root read-only dependency collection initialized for this game before <see cref="Load"/>,
     /// or <see cref="DependencyCollection.EMPTY"/> before initialization.
     /// </summary>
@@ -112,6 +130,15 @@ public class Game : IDisposable
 
         if (InputManager.LoadState == LoadState.NotLoaded)
         {
+            if (textures is null)
+            {
+                var scopedTextureResources = new CompositeResourceProvider();
+                scopedTextureResources.AddProvider(Resources, leaveOpen: true);
+                scopedTextureResources.AddProvider(new NamespacedResourceProvider(Resources, "Textures", leaveOpen: true), leaveOpen: false);
+                textureResourceScope = scopedTextureResources;
+                textures = new TextureCache(Renderer, scopedTextureResources, LoggerFactory.CreateLogger<TextureCache>());
+            }
+
             var rootDependencies = new DependencyCollection();
             rootDependencies.Cache(this);
             rootDependencies.Cache(Host);
@@ -119,6 +146,9 @@ public class Game : IDisposable
             rootDependencies.Cache(Storage);
             rootDependencies.Cache(LoggerFactory);
             rootDependencies.Cache(InputManager);
+            rootDependencies.Cache<IResourceProvider>(Resources);
+            rootDependencies.Cache(Resources);
+            rootDependencies.Cache(Textures);
 
             if (Window is { } window)
                 rootDependencies.Cache(window);
@@ -226,6 +256,9 @@ public class Game : IDisposable
         disposed = true;
         Dependencies = DependencyCollection.EMPTY;
         InputManager.Dispose();
+        textures?.Dispose();
+        textureResourceScope?.Dispose();
+        Resources.Dispose();
         drawNodeBuffer.Clear();
     }
 
