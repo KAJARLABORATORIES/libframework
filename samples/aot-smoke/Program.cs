@@ -9,6 +9,7 @@ using kajarlabs.Framework.Graphics.Rendering;
 using kajarlabs.Framework.Graphics.Rendering.Vertices;
 using kajarlabs.Framework.Input;
 using kajarlabs.Framework.IO;
+using kajarlabs.Framework.IO.Resources;
 using kajarlabs.Framework.Numerics;
 using kajarlabs.Framework.Platform;
 using kajarlabs.Framework.Scene;
@@ -445,6 +446,88 @@ using (var phase5Host = new HeadlessGameHost())
     }
 
     Console.WriteLine("kajarlabs.Framework.Scene.Transforms verified under NativeAOT.");
+}
+
+{
+    var phase7TempRoot = Path.Combine(Path.GetTempPath(), $"kajarlabs-aot-phase7-{Guid.NewGuid():N}");
+
+    try
+    {
+        var diskStorage = new FileSystemStorage(phase7TempRoot);
+
+        // Write a valid 2x2 24-bit uncompressed BMP to disk for StorageResourceProvider + StbImageNext BMP check.
+        byte[] diskBmp =
+        [
+            0x42, 0x4D, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00,
+            0x28, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x18, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x13, 0x0B, 0x00, 0x00, 0x13, 0x0B, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            255, 60, 50, 100, 150, 200, 0, 0,
+            20, 10, 255, 40, 255, 30, 0, 0,
+        ];
+
+        using (var bmpOut = diskStorage.GetStream("Textures/smoke-disk.bmp", FileAccess.Write, FileMode.Create))
+            bmpOut.Write(diskBmp, 0, diskBmp.Length);
+
+        // Also override embedded smoke-rgba (2x2 PNG) with a 4x4 JPEG on disk in a separate override probe.
+        using (var memBase = new MemoryResourceProvider())
+        using (var memOverride = new MemoryResourceProvider())
+        using (var composite = new CompositeResourceProvider())
+        {
+            memBase.Add("Textures/item.png", [1, 2]);
+            memOverride.Add("Textures/item.jpg", [9, 8]);
+            composite.AddProvider(memBase, leaveOpen: true);
+            composite.AddProvider(memOverride, leaveOpen: true);
+            composite.AddExtension(".png");
+            composite.AddExtension(".jpg");
+
+            using var scoped = new NamespacedResourceProvider(composite, "Textures", leaveOpen: true);
+            var overrideBytes = scoped.GetBytes("item");
+
+            if (overrideBytes is null || overrideBytes.Length != 2 || overrideBytes[0] != 9)
+                throw new InvalidOperationException("CompositeResourceProvider/NamespacedResourceProvider override check failed under NativeAOT.");
+
+            var escaped = false;
+
+            try
+            {
+                _ = scoped.Exists("../outside");
+            }
+            catch (ArgumentException)
+            {
+                escaped = true;
+            }
+
+            if (!escaped)
+                throw new InvalidOperationException("NamespacedResourceProvider failed to reject '..' escape under NativeAOT.");
+        }
+
+        using var phase7Host = new HeadlessGameHost();
+        using var phase7Game = new Phase7ResourcesSmokeGame(diskStorage);
+        phase7Host.RunFrames(phase7Game, 500);
+
+        if (!ReferenceEquals(phase7Game.Resources, phase7Game.ResolvedResources)
+            || !ReferenceEquals(phase7Game.Resources, phase7Game.ResolvedComposite)
+            || !ReferenceEquals(phase7Game.Textures, phase7Game.ResolvedTextures)
+            || phase7Game.PngTexture is not { Width: 2, Height: 2 }
+            || phase7Game.JpgTexture is not { Width: 4, Height: 4 }
+            || phase7Game.BmpTexture is not { Width: 2, Height: 2 }
+            || phase7Game.AsyncSprite.LoadState != LoadState.Loaded
+            || phase7Game.AsyncSprite.Texture is not { Width: 2, Height: 2 }
+            || !ReferenceEquals(phase7Game.PngTexture, phase7Game.Textures.Get("smoke-rgba.png"))
+            || !phase7Game.Textures.TryGetCached("smoke-rgba", out _)
+            || phase7Host.Renderer.LastFrameQuadCount < 2)
+        {
+            throw new InvalidOperationException("Phase 7 resource providers, image decoding, and TextureCache check failed under NativeAOT.");
+        }
+    }
+    finally
+    {
+        if (Directory.Exists(phase7TempRoot))
+            Directory.Delete(phase7TempRoot, recursive: true);
+    }
+
+    Console.WriteLine("kajarlabs.Framework Phase 7 resources and TextureCache verified under NativeAOT.");
 }
 
 Console.WriteLine("kajarlabs.Framework GameHost verified under NativeAOT.");
@@ -1333,4 +1416,110 @@ internal sealed class Phase6TransformsSmokeGame : Game
 
         base.Dispose(disposing);
     }
+}
+
+internal sealed partial class Phase7ResourcesSmokeGame : Game
+{
+    private int postAsyncUpdates;
+    private int postAsyncDraws;
+
+    public Phase7ResourcesSmokeGame(Storage diskStorage)
+    {
+        Resources.AddProvider(new AssemblyResourceProvider(
+            typeof(Phase7ResourcesSmokeGame).Assembly,
+            "kajarlabs.Framework.Samples.AotSmoke.Resources"));
+        Resources.AddProvider(new StorageResourceProvider(diskStorage));
+    }
+
+    [Resolved]
+    public IResourceProvider ResolvedResources { get; private set; } = null!;
+
+    [Resolved]
+    public CompositeResourceProvider ResolvedComposite { get; private set; } = null!;
+
+    [Resolved]
+    public TextureCache ResolvedTextures { get; private set; } = null!;
+
+    public ITexture? PngTexture { get; private set; }
+
+    public ITexture? JpgTexture { get; private set; }
+
+    public ITexture? BmpTexture { get; private set; }
+
+    public Phase7SyncTextureSprite SyncSprite { get; } = new("smoke-rgba");
+
+    public Phase7AsyncTextureSprite AsyncSprite { get; } = new("smoke-rgba.tga");
+
+    public Task<Phase7AsyncTextureSprite>? AsyncTask { get; private set; }
+
+    protected override void Load()
+    {
+        PngTexture = Textures.Get("smoke-rgba");
+        JpgTexture = Textures.Get("smoke-rgb.jpg");
+        BmpTexture = Textures.Get("smoke-disk");
+
+        // Verify caller Dispose() on cached texture is a safe no-op.
+        PngTexture?.Dispose();
+
+        Root.Add(SyncSprite);
+        AsyncTask = Root.LoadComponentAsync(AsyncSprite, Root.Add);
+    }
+
+    protected override void Update()
+    {
+        if (AsyncTask is { IsCompleted: true } && AsyncSprite.LoadState == LoadState.Loaded)
+        {
+            var published = Interlocked.Increment(ref postAsyncUpdates);
+
+            if (published >= 2 && Volatile.Read(ref postAsyncDraws) < 2)
+            {
+                SpinWait.SpinUntil(
+                    () => Volatile.Read(ref postAsyncDraws) >= 2,
+                    TimeSpan.FromSeconds(5));
+            }
+
+            if (Volatile.Read(ref postAsyncDraws) >= 2)
+                Exit();
+
+            return;
+        }
+
+        Thread.Sleep(1);
+    }
+
+    protected override void Draw()
+    {
+        if (Volatile.Read(ref postAsyncUpdates) >= 2)
+            Interlocked.Increment(ref postAsyncDraws);
+    }
+}
+
+internal sealed partial class Phase7SyncTextureSprite : Sprite
+{
+    private readonly string textureName;
+
+    [Resolved]
+    private TextureCache textures { get; set; } = null!;
+
+    public Phase7SyncTextureSprite(string textureName)
+    {
+        this.textureName = textureName;
+    }
+
+    protected override void Load() => Texture = textures.Get(textureName);
+}
+
+internal sealed partial class Phase7AsyncTextureSprite : Sprite
+{
+    private readonly string textureName;
+
+    [Resolved]
+    private TextureCache textures { get; set; } = null!;
+
+    public Phase7AsyncTextureSprite(string textureName)
+    {
+        this.textureName = textureName;
+    }
+
+    protected override void Load() => Texture = textures.GetAsync(textureName).GetAwaiter().GetResult();
 }

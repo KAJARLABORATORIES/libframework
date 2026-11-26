@@ -43,7 +43,7 @@ public sealed partial class GameResourcesIntegrationTests : IDisposable
         using var host = new HeadlessGameHost();
         using var game = new ResourceWiredGame(diskStorage);
 
-        host.RunFrames(game, 60);
+        host.RunFrames(game, 500);
 
         Assert.Same(game.Resources, game.ResolvedResourceProvider);
         Assert.Same(game.Resources, game.ResolvedCompositeProvider);
@@ -138,6 +138,8 @@ public sealed partial class GameResourcesIntegrationTests : IDisposable
     private sealed partial class ResourceWiredGame : Game
     {
         private readonly Storage diskStorage;
+        private int postAsyncUpdates;
+        private int postAsyncDraws;
 
         public ResourceWiredGame(Storage diskStorage)
         {
@@ -175,9 +177,29 @@ public sealed partial class GameResourcesIntegrationTests : IDisposable
         protected override void Update()
         {
             if (AsyncLoadTask is { IsCompleted: true } && AsyncSprite.LoadState == LoadState.Loaded)
+            {
+                var published = Interlocked.Increment(ref postAsyncUpdates);
+
+                if (published >= 2 && Volatile.Read(ref postAsyncDraws) < 2)
+                {
+                    SpinWait.SpinUntil(
+                        () => Volatile.Read(ref postAsyncDraws) >= 2,
+                        TimeSpan.FromSeconds(5));
+                }
+
+                if (Volatile.Read(ref postAsyncDraws) >= 2)
+                    Exit();
+
                 return;
+            }
 
             Thread.Sleep(1);
+        }
+
+        protected override void Draw()
+        {
+            if (Volatile.Read(ref postAsyncUpdates) >= 2)
+                Interlocked.Increment(ref postAsyncDraws);
         }
     }
 
