@@ -504,7 +504,7 @@ using (var phase5Host = new HeadlessGameHost())
 
         using var phase7Host = new HeadlessGameHost();
         using var phase7Game = new Phase7ResourcesSmokeGame(diskStorage);
-        phase7Host.RunFrames(phase7Game, 60);
+        phase7Host.RunFrames(phase7Game, 500);
 
         if (!ReferenceEquals(phase7Game.Resources, phase7Game.ResolvedResources)
             || !ReferenceEquals(phase7Game.Resources, phase7Game.ResolvedComposite)
@@ -1420,6 +1420,9 @@ internal sealed class Phase6TransformsSmokeGame : Game
 
 internal sealed partial class Phase7ResourcesSmokeGame : Game
 {
+    private int postAsyncUpdates;
+    private int postAsyncDraws;
+
     public Phase7ResourcesSmokeGame(Storage diskStorage)
     {
         Resources.AddProvider(new AssemblyResourceProvider(
@@ -1465,9 +1468,29 @@ internal sealed partial class Phase7ResourcesSmokeGame : Game
     protected override void Update()
     {
         if (AsyncTask is { IsCompleted: true } && AsyncSprite.LoadState == LoadState.Loaded)
+        {
+            var published = Interlocked.Increment(ref postAsyncUpdates);
+
+            if (published >= 2 && Volatile.Read(ref postAsyncDraws) < 2)
+            {
+                SpinWait.SpinUntil(
+                    () => Volatile.Read(ref postAsyncDraws) >= 2,
+                    TimeSpan.FromSeconds(5));
+            }
+
+            if (Volatile.Read(ref postAsyncDraws) >= 2)
+                Exit();
+
             return;
+        }
 
         Thread.Sleep(1);
+    }
+
+    protected override void Draw()
+    {
+        if (Volatile.Read(ref postAsyncUpdates) >= 2)
+            Interlocked.Increment(ref postAsyncDraws);
     }
 }
 
