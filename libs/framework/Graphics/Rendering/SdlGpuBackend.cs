@@ -451,6 +451,12 @@ internal sealed class SdlGpuBackend : IGpuBackend
         SDL.PushGPUVertexUniformData(commandBuffer, slotIndex, bytes, (uint)bytes.Length);
     }
 
+    public void PushFragmentUniformData(nint commandBuffer, uint slotIndex, in GpuMsdfFragmentUniform uniform)
+    {
+        var bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref Unsafe.AsRef(in uniform), 1));
+        SDL.PushGPUFragmentUniformData(commandBuffer, slotIndex, bytes, (uint)bytes.Length);
+    }
+
     public void DrawIndexedPrimitives(
         nint renderPass,
         uint numIndices,

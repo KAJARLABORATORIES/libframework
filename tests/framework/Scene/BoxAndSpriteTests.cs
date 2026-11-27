@@ -387,6 +387,22 @@ public sealed class BoxAndSpriteTests
         public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
             => DrawCalls.Add(new RecordedDrawCall(texture, destination, textureCoords, color));
 
+        public void DrawMsdfQuad(
+            ITexture texture,
+            RectangleF destination,
+            RectangleF textureCoords,
+            Color4 color,
+            in MsdfRenderParameters parameters)
+            => DrawMsdfQuad(texture, Quad.FromRectangle(destination), textureCoords, color, in parameters);
+
+        public void DrawMsdfQuad(
+            ITexture texture,
+            Quad destination,
+            RectangleF textureCoords,
+            Color4 color,
+            in MsdfRenderParameters parameters)
+            => DrawCalls.Add(new RecordedDrawCall(texture, destination, textureCoords, color));
+
         public readonly record struct RecordedDrawCall(
             ITexture Texture,
             Quad Destination,

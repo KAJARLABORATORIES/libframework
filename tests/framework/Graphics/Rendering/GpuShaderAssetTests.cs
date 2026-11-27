@@ -20,7 +20,13 @@ public sealed class GpuShaderAssetTests
         Assert.Equal(0u, BuiltInShaders.SPRITE_2D_FRAGMENT.NumStorageTextures);
         Assert.Equal(0u, BuiltInShaders.SPRITE_2D_FRAGMENT.NumStorageBuffers);
 
-        foreach (var descriptor in new[] { BuiltInShaders.SPRITE_2D_VERTEX, BuiltInShaders.SPRITE_2D_FRAGMENT })
+        Assert.Equal(GpuShaderStage.Fragment, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.Stage);
+        Assert.Equal(1u, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.NumUniformBuffers);
+        Assert.Equal(1u, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.NumSamplers);
+        Assert.Equal(0u, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.NumStorageTextures);
+        Assert.Equal(0u, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.NumStorageBuffers);
+
+        foreach (var descriptor in new[] { BuiltInShaders.SPRITE_2D_VERTEX, BuiltInShaders.SPRITE_2D_FRAGMENT, BuiltInShaders.MSDF_TEXT_2D_FRAGMENT })
         {
             var spirv = descriptor.SelectVariant(GpuShaderFormats.SpirV);
             Assert.Equal("main", spirv.Entrypoint);
@@ -45,6 +51,11 @@ public sealed class GpuShaderAssetTests
             Assert.Contains("metal_stdlib", mslSource, StringComparison.Ordinal);
             Assert.Contains("main0(", mslSource, StringComparison.Ordinal);
         }
+
+        var msdfMsl = Encoding.UTF8.GetString(
+            BuiltInShaders.MSDF_TEXT_2D_FRAGMENT.SelectVariant(GpuShaderFormats.Msl).LoadBytecode().Span);
+        Assert.Contains("MsdfParams", msdfMsl, StringComparison.Ordinal);
+        Assert.Contains("fwidth(", msdfMsl, StringComparison.Ordinal);
     }
 
     [Fact]

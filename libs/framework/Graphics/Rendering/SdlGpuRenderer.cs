@@ -185,6 +185,27 @@ internal sealed class SdlGpuRenderer : IHostRenderer
         batcher.DrawQuad(texture, destination, textureCoords, color);
     }
 
+    public void DrawMsdfQuad(
+        ITexture texture,
+        RectangleF destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+        => DrawMsdfQuad(texture, Quad.FromRectangle(destination), textureCoords, color, in parameters);
+
+    public void DrawMsdfQuad(
+        ITexture texture,
+        Quad destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+    {
+        var batcher = Volatile.Read(ref quadBatcher)
+            ?? throw new InvalidOperationException("Renderer quad batcher is not initialized.");
+
+        batcher.DrawMsdfQuad(texture, destination, textureCoords, color, in parameters);
+    }
+
     public void EndFrame(bool faulted = false)
     {
         if (!hasActiveFrame)

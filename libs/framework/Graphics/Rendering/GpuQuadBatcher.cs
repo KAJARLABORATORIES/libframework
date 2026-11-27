@@ -118,6 +118,10 @@ internal sealed class GpuQuadBatcher : IDisposable
 
     internal Matrix4x4 CurrentProjection => currentProjection;
 
+    internal QuadShaderMode CurrentShaderMode { get; private set; }
+
+    internal MsdfRenderParameters CurrentMsdfParameters { get; private set; }
+
     public void BeginFrame(in GpuOffscreenFrame frame, Viewport viewport)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -130,6 +134,8 @@ internal sealed class GpuQuadBatcher : IDisposable
         EffectiveScissor = computeEffectiveScissor(null, viewport, frame.Width, frame.Height);
         currentProjection = createViewportProjection(viewport);
         currentTextureHandle = nint.Zero;
+        CurrentShaderMode = QuadShaderMode.Sprite2D;
+        CurrentMsdfParameters = default;
         pendingClearColor = Color4.BLACK;
         hasIssuedRenderPassInFrame = false;
         QueuedQuadCount = 0;
@@ -209,6 +215,37 @@ internal sealed class GpuQuadBatcher : IDisposable
 
     public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
     {
+        MsdfRenderParameters unused = default;
+        queueQuad(texture, destination, textureCoords, color, QuadShaderMode.Sprite2D, in unused);
+    }
+
+    public void DrawMsdfQuad(
+        ITexture texture,
+        RectangleF destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+        => DrawMsdfQuad(texture, Quad.FromRectangle(destination), textureCoords, color, in parameters);
+
+    public void DrawMsdfQuad(
+        ITexture texture,
+        Quad destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+    {
+        parameters.Validate(nameof(parameters));
+        queueQuad(texture, destination, textureCoords, color, QuadShaderMode.MsdfText2D, in parameters);
+    }
+
+    private void queueQuad(
+        ITexture texture,
+        Quad destination,
+        RectangleF textureCoords,
+        Color4 color,
+        QuadShaderMode shaderMode,
+        in MsdfRenderParameters msdfParameters)
+    {
         ArgumentNullException.ThrowIfNull(texture);
 
         while (texture is ITextureWrapper wrapper)
@@ -225,10 +262,20 @@ internal sealed class GpuQuadBatcher : IDisposable
 
         var textureHandle = gpuTexture.Handle;
 
-        if (QueuedQuadCount > 0 && (currentTextureHandle != textureHandle || QueuedQuadCount >= MaxQuadsPerBatch))
+        if (QueuedQuadCount > 0
+            && (currentTextureHandle != textureHandle
+                || CurrentShaderMode != shaderMode
+                || (shaderMode == QuadShaderMode.MsdfText2D && CurrentMsdfParameters != msdfParameters)
+                || QueuedQuadCount >= MaxQuadsPerBatch))
+        {
             flushQueuedQuads();
+        }
 
         currentTextureHandle = textureHandle;
+        CurrentShaderMode = shaderMode;
+
+        if (shaderMode == QuadShaderMode.MsdfText2D)
+            CurrentMsdfParameters = msdfParameters;
 
         var vertices = MemoryMarshal.Cast<byte, TexturedVertex2D>(vertexStagingBytes);
         var baseVertex = QueuedQuadCount * 4;
@@ -322,9 +369,13 @@ internal sealed class GpuQuadBatcher : IDisposable
             backend.EndCopyPass(copyPass);
         }
 
+        var fragmentShader = CurrentShaderMode == QuadShaderMode.MsdfText2D
+            ? BuiltInShaders.MSDF_TEXT_2D_FRAGMENT
+            : BuiltInShaders.SPRITE_2D_FRAGMENT;
+
         var pipelineKey = new GpuGraphicsPipelineKey(
             BuiltInShaders.SPRITE_2D_VERTEX,
-            BuiltInShaders.SPRITE_2D_FRAGMENT,
+            fragmentShader,
             GpuVertexLayout.TEXTURED_VERTEX_2D,
             CurrentBlending,
             GpuPrimitiveTopology.TriangleList,
@@ -334,6 +385,12 @@ internal sealed class GpuQuadBatcher : IDisposable
         var sampler = samplerCache.GetOrCreateSampler(CurrentSampler);
 
         backend.PushVertexUniformData(activeFrame.CommandBuffer, 0, in currentProjection);
+
+        if (CurrentShaderMode == QuadShaderMode.MsdfText2D)
+        {
+            var msdfUniform = CurrentMsdfParameters.ToFragmentUniform();
+            backend.PushFragmentUniformData(activeFrame.CommandBuffer, 0, in msdfUniform);
+        }
 
         var clearColor = hasIssuedRenderPassInFrame ? (Color4?)null : pendingClearColor;
         var renderPass = backend.BeginRenderPass(activeFrame.CommandBuffer, activeFrame.ColorTargetTexture, clearColor);

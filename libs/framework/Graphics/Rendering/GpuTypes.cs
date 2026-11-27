@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using kajarlabs.Framework.Graphics.Rendering.Vertices;
 
@@ -222,3 +223,15 @@ internal readonly record struct GpuTextureRegion(
     uint Y,
     uint Width,
     uint Height);
+
+internal enum QuadShaderMode : byte
+{
+    Sprite2D = 0,
+    MsdfText2D = 1,
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly record struct GpuMsdfFragmentUniform(
+    Vector2 UnitRange,
+    float DistanceBias,
+    float Reserved);

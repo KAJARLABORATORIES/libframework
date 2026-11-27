@@ -142,7 +142,7 @@ using (var headlessHost = new HeadlessGameHost())
     if (white.Width != 1 || white.Height != 1 || TextureSamplerParameters.LINEAR_CLAMP.Filtering != TextureFilteringMode.Linear)
         throw new InvalidOperationException("Texture or sampler API check failed under NativeAOT.");
 
-    if (headlessHost.Renderer.LastFrameDrawCallCount == 0 || headlessHost.Renderer.LastFrameQuadCount < 3)
+    if (headlessHost.Renderer.LastFrameDrawCallCount < 2 || headlessHost.Renderer.LastFrameQuadCount < 5)
         throw new InvalidOperationException("Renderer quad batch telemetry check failed under NativeAOT.");
 }
 
@@ -150,9 +150,16 @@ var viewport = new Viewport(new RectangleI(0, 0, 1280, 720));
 var projection = GraphicsMath.CreateOrthographicProjection(viewport);
 var vertex = new TexturedVertex2D(Vector2.Zero, Vector2.One, Color4.WHITE.WithAlpha(0.5f));
 var clip = Vector4.Transform(new Vector4(vertex.Position, 0f, 1f), projection);
+var msdfSmokeParams = new MsdfRenderParameters(4f, 512, 256);
 
-if (MathF.Abs(clip.X - (-1f)) > 0.0001f || MathF.Abs(clip.Y - 1f) > 0.0001f || !BlendingParameters.ALPHA.IsEnabled)
-    throw new InvalidOperationException("Graphics primitives failed projection check under NativeAOT.");
+if (MathF.Abs(clip.X - (-1f)) > 0.0001f
+    || MathF.Abs(clip.Y - 1f) > 0.0001f
+    || !BlendingParameters.ALPHA.IsEnabled
+    || RuntimeHelpers.IsReferenceOrContainsReferences<MsdfRenderParameters>()
+    || msdfSmokeParams.UnitRange != new Vector2(4f / 512f, 4f / 256f))
+{
+    throw new InvalidOperationException("Graphics primitives failed projection or MSDF parameter check under NativeAOT.");
+}
 
 var quadTransform = Matrix3x2Extensions.CreateLocalTransform(new Vector2(10f, 20f), Vector2.One, Vector2.Zero, 90f, Vector2.Zero);
 var transformedQuad = new Quad(0f, 0f, 20f, 10f).Transformed(quadTransform);
@@ -616,6 +623,9 @@ internal sealed class HeadlessSmokeGame : Game
         Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(10f, 10f, 32f, 32f), Color4.WHITE);
         Renderer.DrawQuad(Renderer.WhitePixel, new RectangleF(50f, 10f, 16f, 16f), new RectangleF(0f, 0f, 0.5f, 0.5f), Color4.RED);
         Renderer.DrawQuad(Renderer.WhitePixel, new Quad(70f, 10f, 16f, 16f) * Matrix3x2.CreateRotation(0.25f), Color4.GREEN);
+        var msdfParams = new MsdfRenderParameters(4f, 256, 256);
+        Renderer.DrawMsdfQuad(Renderer.WhitePixel, new RectangleF(10f, 50f, 20f, 20f), new RectangleF(0f, 0f, 0.25f, 0.25f), Color4.WHITE, in msdfParams);
+        Renderer.DrawMsdfQuad(Renderer.WhitePixel, new Quad(34f, 50f, 20f, 20f), new RectangleF(0.25f, 0f, 0.25f, 0.25f), Color4.YELLOW, in msdfParams);
         Renderer.SetScissor(null);
         Renderer.SetProjection(null);
         drawObserved.Set();

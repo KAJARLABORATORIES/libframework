@@ -64,9 +64,10 @@ compile_one() {
 
 compile_one "Sprite2D.vert" "vertex"
 compile_one "Sprite2D.frag" "fragment"
+compile_one "MsdfText2D.frag" "fragment"
 
 if [[ "$check_only" == "true" ]]; then
-  for file in Sprite2D.vert.spv Sprite2D.vert.dxil Sprite2D.vert.msl Sprite2D.frag.spv Sprite2D.frag.dxil Sprite2D.frag.msl; do
+  for file in Sprite2D.vert.spv Sprite2D.vert.dxil Sprite2D.vert.msl Sprite2D.frag.spv Sprite2D.frag.dxil Sprite2D.frag.msl MsdfText2D.frag.spv MsdfText2D.frag.dxil MsdfText2D.frag.msl; do
     if [[ ! -f "$compiled_dir/$file" ]]; then
       echo "Missing committed shader artifact: $file" >&2
       exit 1

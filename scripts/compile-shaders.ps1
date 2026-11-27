@@ -34,7 +34,8 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $shaders = @(
     @{ Name = "Sprite2D.vert"; Stage = "vertex"; Source = "Sprite2D.vert.hlsl" },
-    @{ Name = "Sprite2D.frag"; Stage = "fragment"; Source = "Sprite2D.frag.hlsl" }
+    @{ Name = "Sprite2D.frag"; Stage = "fragment"; Source = "Sprite2D.frag.hlsl" },
+    @{ Name = "MsdfText2D.frag"; Stage = "fragment"; Source = "MsdfText2D.frag.hlsl" }
 )
 
 $targets = @(
