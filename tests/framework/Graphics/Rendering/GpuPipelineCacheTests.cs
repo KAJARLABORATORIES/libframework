@@ -104,6 +104,38 @@ public sealed class GpuPipelineCacheTests
         Assert.Throws<ObjectDisposedException>(() => cache.GetOrCreatePipeline(createSpriteKey(BlendingParameters.NONE)));
     }
 
+    [Fact]
+    public void GetOrCreatePipelineSupportsMsdfFragmentShaderReusingSpriteVertexShader()
+    {
+        var backend = new RecordingGpuBackend();
+        using var cache = new GpuPipelineCache(backend, fake_device, GpuShaderFormats.SpirV);
+
+        var spriteKey = createSpriteKey(BlendingParameters.ALPHA);
+        var msdfKey = new GpuGraphicsPipelineKey(
+            BuiltInShaders.SPRITE_2D_VERTEX,
+            BuiltInShaders.MSDF_TEXT_2D_FRAGMENT,
+            GpuVertexLayout.TEXTURED_VERTEX_2D,
+            BlendingParameters.ALPHA,
+            GpuPrimitiveTopology.TriangleList,
+            default_format);
+
+        var spritePipeline = cache.GetOrCreatePipeline(spriteKey);
+        var msdfPipeline1 = cache.GetOrCreatePipeline(msdfKey);
+        var msdfPipeline2 = cache.GetOrCreatePipeline(msdfKey);
+
+        Assert.NotEqual(spritePipeline, msdfPipeline1);
+        Assert.Equal(msdfPipeline1, msdfPipeline2);
+        Assert.Equal(3, backend.CreatedShaders.Count);
+        Assert.Equal(2, backend.CreatedPipelines.Count);
+        Assert.Equal(3, cache.CachedShaderCount);
+        Assert.Equal(2, cache.CachedPipelineCount);
+
+        var (stage, _, _, _, numSamplers, numUniformBuffers) = backend.ShaderDescriptions[^1];
+        Assert.Equal(GpuShaderStage.Fragment, stage);
+        Assert.Equal(1u, numUniformBuffers);
+        Assert.Equal(1u, numSamplers);
+    }
+
     private static GpuGraphicsPipelineKey createSpriteKey(BlendingParameters blending)
         => new(
             BuiltInShaders.SPRITE_2D_VERTEX,
@@ -120,13 +152,13 @@ public sealed class GpuPipelineCacheTests
         public List<nint> CreatedPipelines { get; } = [];
         public List<nint> ReleasedPipelines { get; } = [];
         public List<string> ReleaseSequence { get; } = [];
-        public List<(GpuShaderStage Stage, GpuShaderFormats Format, string Entrypoint, ReadOnlyMemory<byte> Bytecode)> ShaderDescriptions { get; } = [];
+        public List<(GpuShaderStage Stage, GpuShaderFormats Format, string Entrypoint, ReadOnlyMemory<byte> Bytecode, uint NumSamplers, uint NumUniformBuffers)> ShaderDescriptions { get; } = [];
 
         public override nint CreateShader(nint device, in GpuShaderCreateDescription description)
         {
             var handle = NextHandle();
             CreatedShaders.Add(handle);
-            ShaderDescriptions.Add((description.Stage, description.Format, description.Entrypoint, description.Bytecode));
+            ShaderDescriptions.Add((description.Stage, description.Format, description.Entrypoint, description.Bytecode, description.NumSamplers, description.NumUniformBuffers));
             return handle;
         }
 

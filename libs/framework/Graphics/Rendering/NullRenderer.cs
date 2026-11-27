@@ -16,6 +16,8 @@ internal sealed class NullRenderer : IHostRenderer
     private int frameQuadCount;
     private int queuedQuadCount;
     private ITexture? currentTexture;
+    private QuadShaderMode currentShaderMode;
+    private MsdfRenderParameters currentMsdfParameters;
     private BlendingParameters currentBlending = BlendingParameters.ALPHA;
     private TextureSamplerParameters currentSampler = TextureSamplerParameters.LINEAR_CLAMP;
     private RectangleI? currentScissor;
@@ -83,6 +85,8 @@ internal sealed class NullRenderer : IHostRenderer
             currentScissor = null;
             currentProjection = null;
             currentTexture = null;
+            currentShaderMode = QuadShaderMode.Sprite2D;
+            currentMsdfParameters = default;
             queuedQuadCount = 0;
             frameDrawCallCount = 0;
             frameQuadCount = 0;
@@ -157,6 +161,31 @@ internal sealed class NullRenderer : IHostRenderer
 
     public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
     {
+        MsdfRenderParameters unused = default;
+        queueQuad(texture, QuadShaderMode.Sprite2D, in unused);
+    }
+
+    public void DrawMsdfQuad(
+        ITexture texture,
+        RectangleF destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+        => DrawMsdfQuad(texture, Quad.FromRectangle(destination), textureCoords, color, in parameters);
+
+    public void DrawMsdfQuad(
+        ITexture texture,
+        Quad destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters)
+    {
+        parameters.Validate(nameof(parameters));
+        queueQuad(texture, QuadShaderMode.MsdfText2D, in parameters);
+    }
+
+    private void queueQuad(ITexture texture, QuadShaderMode shaderMode, in MsdfRenderParameters msdfParameters)
+    {
         ArgumentNullException.ThrowIfNull(texture);
 
         while (texture is ITextureWrapper wrapper)
@@ -176,10 +205,20 @@ internal sealed class NullRenderer : IHostRenderer
             if (effectiveScissor.IsEmpty)
                 return;
 
-            if (queuedQuadCount > 0 && !ReferenceEquals(currentTexture, texture))
+            if (queuedQuadCount > 0
+                && (!ReferenceEquals(currentTexture, texture)
+                    || currentShaderMode != shaderMode
+                    || (shaderMode == QuadShaderMode.MsdfText2D && currentMsdfParameters != msdfParameters)))
+            {
                 flushNullBatchLocked();
+            }
 
             currentTexture = texture;
+            currentShaderMode = shaderMode;
+
+            if (shaderMode == QuadShaderMode.MsdfText2D)
+                currentMsdfParameters = msdfParameters;
+
             queuedQuadCount++;
         }
     }

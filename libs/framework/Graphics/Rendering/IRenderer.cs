@@ -84,4 +84,25 @@ public interface IRenderer
     /// Queues a textured, color-tinted 2D transformed <see cref="Quad"/> with explicit normalized UV coordinates.
     /// </summary>
     void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color);
+
+    /// <summary>
+    /// Queues a multi-channel signed distance field (MSDF) 2D quad with explicit normalized UV coordinates.
+    /// </summary>
+    void DrawMsdfQuad(
+        ITexture texture,
+        RectangleF destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters);
+
+    /// <summary>
+    /// Queues a multi-channel signed distance field (MSDF) 2D transformed <see cref="Quad"/> with explicit
+    /// normalized UV coordinates.
+    /// </summary>
+    void DrawMsdfQuad(
+        ITexture texture,
+        Quad destination,
+        RectangleF textureCoords,
+        Color4 color,
+        in MsdfRenderParameters parameters);
 }

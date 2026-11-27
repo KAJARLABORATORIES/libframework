@@ -217,6 +217,22 @@ public sealed class DrawNodeLifecycleTests
         public void DrawQuad(ITexture texture, Quad destination, RectangleF textureCoords, Color4 color)
             => DrawQuad(texture, destination, color);
 
+        public void DrawMsdfQuad(
+            ITexture texture,
+            RectangleF destination,
+            RectangleF textureCoords,
+            Color4 color,
+            in MsdfRenderParameters parameters)
+            => DrawMsdfQuad(texture, Quad.FromRectangle(destination), textureCoords, color, in parameters);
+
+        public void DrawMsdfQuad(
+            ITexture texture,
+            Quad destination,
+            RectangleF textureCoords,
+            Color4 color,
+            in MsdfRenderParameters parameters)
+            => DrawQuad(texture, destination, color);
+
         private sealed class StubTexture : ITexture
         {
             public int Width => 1;

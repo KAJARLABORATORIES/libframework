@@ -104,6 +104,8 @@ internal interface IGpuBackend
 
     void PushVertexUniformData(nint commandBuffer, uint slotIndex, in Matrix4x4 matrix);
 
+    void PushFragmentUniformData(nint commandBuffer, uint slotIndex, in GpuMsdfFragmentUniform uniform);
+
     void DrawIndexedPrimitives(
         nint renderPass,
         uint numIndices,

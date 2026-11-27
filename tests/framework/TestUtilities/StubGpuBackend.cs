@@ -184,6 +184,10 @@ internal abstract class StubGpuBackend : IGpuBackend
     {
     }
 
+    public virtual void PushFragmentUniformData(nint commandBuffer, uint slotIndex, in GpuMsdfFragmentUniform uniform)
+    {
+    }
+
     public virtual void DrawIndexedPrimitives(
         nint renderPass,
         uint numIndices,

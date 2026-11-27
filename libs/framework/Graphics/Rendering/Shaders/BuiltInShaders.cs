@@ -11,6 +11,8 @@ internal static class BuiltInShaders
 
     public static readonly GpuShaderDescriptor SPRITE_2D_FRAGMENT = createSprite2DFragment();
 
+    public static readonly GpuShaderDescriptor MSDF_TEXT_2D_FRAGMENT = createMsdfText2DFragment();
+
     private static GpuShaderDescriptor createSprite2DVertex()
     {
         var assembly = typeof(BuiltInShaders).Assembly;
@@ -46,6 +48,25 @@ internal static class BuiltInShaders
                 new GpuShaderVariant(GpuShaderFormats.SpirV, "main", assembly, resource_prefix + "Sprite2D.frag.spv"),
                 new GpuShaderVariant(GpuShaderFormats.Dxil, "main", assembly, resource_prefix + "Sprite2D.frag.dxil"),
                 new GpuShaderVariant(GpuShaderFormats.Msl, "main0", assembly, resource_prefix + "Sprite2D.frag.msl"),
+            ]);
+    }
+
+    private static GpuShaderDescriptor createMsdfText2DFragment()
+    {
+        var assembly = typeof(BuiltInShaders).Assembly;
+
+        return new GpuShaderDescriptor(
+            name: "MsdfText2D.frag",
+            stage: GpuShaderStage.Fragment,
+            numSamplers: 1,
+            numStorageTextures: 0,
+            numStorageBuffers: 0,
+            numUniformBuffers: 1,
+            variants:
+            [
+                new GpuShaderVariant(GpuShaderFormats.SpirV, "main", assembly, resource_prefix + "MsdfText2D.frag.spv"),
+                new GpuShaderVariant(GpuShaderFormats.Dxil, "main", assembly, resource_prefix + "MsdfText2D.frag.dxil"),
+                new GpuShaderVariant(GpuShaderFormats.Msl, "main0", assembly, resource_prefix + "MsdfText2D.frag.msl"),
             ]);
     }
 }
